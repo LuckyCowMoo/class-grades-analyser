@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Class Grades Analyser · Christ the King, Southport</title>
+      <link rel="icon" href="img/ctk-crest.png">
+  <link rel="stylesheet" href="css/style.css?v=40">
+</head>
+<body>
+  <div class="fx" id="fx" aria-hidden="true">
+    <div class="fx-full"></div>
+    <div class="fx-left"></div>
+    <div class="fx-right"></div>
+    <div class="fx-blob"></div>
+  </div>
+
+  <div class="app" id="app">
+    <section class="screen on" id="screen-home" data-screen="home">
+      <div class="home-peach"></div>
+      <div class="home-navy"></div>
+      <div class="home-bar"></div>
+      <div class="home-bar b2"></div>
+      <div class="home-bar b3"></div>
+      <div class="home-bar b4"></div>
+      <div class="cloud c1"></div>
+      <div class="cloud c2"></div>
+      <div class="cloud c3"></div>
+      <div class="cloud c4"></div>
+      <div class="ctk-brand">
+        <img class="home-logo" src="img/ctk-crest.png" alt="Christ the King Catholic High School and Sixth Form, Southport">
+        <div class="ctk-letters" aria-label="Christ the King">
+          <span class="ctk-letter" tabindex="0"><b>C</b><i>hrist</i></span>
+          <span class="ctk-letter" tabindex="0"><b>T</b><i>he</i></span>
+          <span class="ctk-letter" tabindex="0"><b>K</b><i>ing</i></span>
+        </div>
+      </div>
+      <input id="folder-input" class="sr-file" type="file" webkitdirectory multiple>
+      <input id="file-input" class="sr-file" type="file" accept=".zip,.pdf,application/zip,application/pdf" multiple>
+      <div class="upload-disc" aria-hidden="true"></div>
+      <button type="button" class="upload-orb" id="load-class" aria-label="Select folder of pupil reports">
+        <span>Select<br><em>folder</em></span>
+      </button>
+      <p class="orb-progress" id="progress-label" hidden></p>
+      <nav class="home-pills" aria-label="Home">
+        <button type="button" class="pill" data-go="help">How to use this</button>
+        <button type="button" class="pill" data-go="reports">Past reports</button>
+        <button type="button" class="pill" data-go="key">API key</button>
+        <button type="button" class="pill" data-go="safety">Why this is safe</button>
+        <button type="button" class="pill" data-go="contact">Contact</button>
+      </nav>
+    </section>
+
+    <section class="screen" id="screen-key" data-screen="key">
+      <div class="page page-navy">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <div class="slash-deco"></div>
+        <h1>Put your OpenRouter key on this computer.</h1>
+        <p>You need a free <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">OpenRouter</a> account. This page picks the best free reasoning model for you automatically.</p>
+        <p>Go to <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">openrouter.ai</a> and sign up with Google or email. Open <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Settings, then Keys</a>, and create a key. Give it a name such as Class analyser. Copy the key (it starts with sk-or-) and paste it below. You only need to do this once per computer.</p>
+        <p>The key stays in this browser. It is not copied to GitHub. After it is saved you will not be asked for it again on this machine. Free models have daily limits. If you hit them, OpenRouter will tell you; waiting until the next day, or adding a small one-off credit, raises the free limit.</p>
+        <div class="field">
+          <label for="api-key">OpenRouter API key</label>
+          <div class="field-key">
+            <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
+            <button type="button" class="pill" id="toggle-key" aria-controls="api-key" aria-pressed="false">Show</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="referer">Site URL for OpenRouter (optional)</label>
+          <input id="referer" type="url" placeholder="https://yoursite.github.io/class-grades-analyser/">
+        </div>
+        <div class="actions">
+          <button type="button" class="pill" id="save-key">Save and go on</button>
+        </div>
+        <p class="notice" id="key-status" hidden></p>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-help" data-screen="help">
+      <div class="page page-peach">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <div class="help-copy">
+          <h1>How to use this</h1>
+          <p>Press the red circle on the first page and choose the zip of Pupil Progress PDFs for one class, or drop the folder onto that page. This page reads every file on your computer. Names, Unique Pupil Numbers and dates of birth never leave the machine.</p>
+          <p>Check the table. Add a blank assessment PDF if you want the model to know about a paper the class has not sat yet. Read the outgoing message, then press Go. A free reasoning model on OpenRouter writes the report. Codes such as P07 are swapped back to names only on this computer.</p>
+          <p>You can ask a follow-up about one pupil after the first answer. Past reports stay in this browser until you delete them.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-safety" data-screen="safety">
+      <div class="page page-peach">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <h1>Why this is safe</h1>
+        <div class="safety-copy">
+          <p>This website never sends a pupil’s name to an AI. The reports are read on your computer, in this browser, and every name, Unique Pupil Number, date of birth and contact detail is taken out before anything leaves the machine.</p>
+          <p>What the model receives is a table of random codes such as P07, together with grades and topic names. The school’s name, the teacher’s name and the class code are left out as well, because they are not needed for the analysis.</p>
+          <p>The code-to-name key stays in this browser. When the model answers, this page swaps the codes back to names on your computer so you can see who needs help. You can read the exact outgoing message on the check page before you press Go. If a name or a Unique Pupil Number is still in that text, the page will refuse to send it.</p>
+          <p>Nothing is uploaded to a school server or to GitHub. The only network call for the analysis is to the AI provider you have chosen, using the key stored on this computer.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-contact" data-screen="contact">
+      <div class="page page-peach">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <h1>If this page breaks later</h1>
+        <div class="safety-copy">
+          <p>This website should not need constant attention. It is meant to keep working on its own, on the teacher’s computer, without anyone having to look after it day to day.</p>
+          <p>At some point OpenRouter or Pupil Progress will likely change the format of something in a way that breaks this website. That is a normal risk with a tool that reads someone else’s PDFs and talks to someone else’s AI.</p>
+          <p>If that happens after the training placement at Christ the King has ended, you can contact me on my personal email, <a href="mailto:lukeatthecafe@gmail.com">lukeatthecafe@gmail.com</a>. You also have my full permission to do what you want with this website, including changing it, hosting it, or replacing it.</p>
+          <p>The source is on <a href="https://github.com/LuckyCowMoo/class-grades-analyser" target="_blank" rel="noopener noreferrer">GitHub</a>. The licence for that project says that the work is completely owned by Christ the King Catholic High School and Sixth Form Centre. Read the <a href="LICENSE">licence</a> if you want the legal wording.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-reports" data-screen="reports">
+      <div class="page page-navy">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <h1>Past reports on this computer</h1>
+        <p>These stay in this browser. They are not stored on GitHub.</p>
+        <div class="report-list" id="report-list"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-review" data-screen="review">
+      <div class="page page-peach">
+        <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
+        <div class="back-disc" aria-hidden="true"></div>
+        <div class="home-bar b2" style="left:78%;width:4vw"></div>
+        <h1>Check the class.</h1>
+        <p>Year group, subject and these grades were read from the PDFs. Fix anything that looks wrong before the model sees it.</p>
+        <div class="field"><label for="year-group">Year group</label><input id="year-group" type="text"></div>
+        <div class="field"><label for="subject">Subject</label><input id="subject" type="text"></div>
+        <p class="notice" id="parse-status"></p>
+        <details class="drawer">
+          <summary>Grades that will be sent as codes</summary>
+          <div class="table-load" id="grade-table-load" hidden role="status">
+            <div class="table-spinner" aria-hidden="true"></div>
+            <span>Loading grades</span>
+          </div>
+          <div class="table-wrap" id="grade-table"></div>
+        </details>
+        <details class="drawer">
+          <summary>Code to name (stays on this computer)</summary>
+          <div class="table-wrap" id="name-key"></div>
+        </details>
+        <details class="drawer">
+          <summary>Empty assessment PDF (optional extra context)</summary>
+          <p>Add a blank paper if the class has not sat it yet. Only the question titles go to the model.</p>
+          <input id="empty-assessment" type="file" accept=".pdf,application/pdf">
+          <p id="empty-assessment-status"></p>
+        </details>
+        <details class="drawer">
+          <summary>Exact message that will leave this computer</summary>
+          <p class="row">
+            <button type="button" class="pill ghost" id="jump-payload">Jump to the data block</button>
+            <button type="button" class="pill ghost" id="copy-prompt">Copy as prompt.txt</button>
+            <button type="button" class="pill js-paste-reply">Use clipboard</button>
+          </p>
+          <p class="notice" id="paste-status" hidden></p>
+          <div class="field" id="paste-box" hidden>
+            <label for="paste-text">Paste the reply here</label>
+            <textarea id="paste-text" rows="8"></textarea>
+            <div class="actions">
+              <button type="button" class="pill" id="paste-save">Save this reply</button>
+            </div>
+          </div>
+          <pre class="payload" id="payload-preview"></pre>
+        </details>
+        <p class="guard" id="guard-banner" hidden></p>
+        <div class="actions">
+          <button type="button" class="pill" id="to-analyse">Looks right, go on</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-analyse" data-screen="analyse">
+      <div class="analyse-grid">
+        <div class="analyse-main" id="analyse-main">
+          <div class="go-stage" id="go-stage">
+            <div class="go-disc" aria-hidden="true"></div>
+            <button type="button" class="go-orb" id="go" aria-label="Go"><span>Go</span></button>
+          </div>
+          <div id="think-wrap" hidden>
+            <p>The model is thinking. This is a live extract of that work.</p>
+            <div class="think-reel" id="think-reel" aria-live="polite"></div>
+          </div>
+          <article class="report" id="report" hidden></article>
+          <div class="composer-inline" id="composer" hidden>
+            <div class="composer-bar">
+              <label class="sr-only" for="followup">Ask a follow-up. The same privacy rules apply.</label>
+              <textarea id="followup" rows="1" placeholder="Ask a follow-up. The same privacy rules apply."></textarea>
+              <button type="button" class="send-orb" id="send-followup" aria-label="Send"><span>Send</span></button>
+            </div>
+            <div class="code-pop" id="code-pop"></div>
+          </div>
+          <div id="scroll-end"></div>
+        </div>
+        <aside class="analyse-side">
+          <h2>The model</h2>
+          <div class="field" id="model-pick-wrap">
+            <label for="model-select">Reasoning model</label>
+            <select id="model-select"></select>
+            <p class="status-pill" id="model-status">Looking up free models…</p>
+          </div>
+          <p id="run-status"></p>
+          <div class="metrics">
+            <div class="metric"><b id="metric-tps">—</b><span>words per second, as OpenRouter reports it now</span></div>
+            <div class="metric"><b id="metric-reason">—</b><span>reasoning score against the current top model</span></div>
+            <div class="metric"><b id="metric-released">—</b><span>release date of the model</span></div>
+          </div>
+          <div class="field" id="extra-wrap">
+            <label for="extra-context">Anything else the model should know (optional)</label>
+            <textarea id="extra-context" rows="3" placeholder="This is a mid-year class. Focus on papers already sat."></textarea>
+          </div>
+          <div class="side-actions" id="go-wrap">
+            <button type="button" class="pill" data-go="review">Back</button>
+          </div>
+          <div class="side-actions" id="ident-wrap" hidden>
+            <button type="button" class="pill" id="show-names">Show names</button>
+            <button type="button" class="pill" id="show-codes">Show codes</button>
+          </div>
+          <div class="side-actions" id="run-wrap" hidden>
+            <button type="button" class="pill ghost" id="stop">Stop</button>
+          </div>
+          <div class="side-actions" id="done-wrap" hidden>
+            <button type="button" class="pill" id="print-report">Print</button>
+            <button type="button" class="pill" id="copy-report">Copy</button>
+            <button type="button" class="pill" id="new-class">New class</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script src="vendor/jszip.min.js"></script>
+  <script type="module" src="js/app.js?v=38"></script>
+</body>
+</html>

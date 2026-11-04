@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-labelledby="t">
+  <title id="t">Christ the King Catholic High School</title>
+  <defs>
+    <radialGradient id="g" cx="40%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#3a4470"/>
+      <stop offset="100%" stop-color="#161326"/>
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="96" fill="url(#g)" stroke="#f3e6d4" stroke-width="6"/>
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#e85d4c" stroke-width="3"/>
+  <path d="M100 28 L112 52 H138 L118 68 L126 94 L100 78 L74 94 L82 68 L62 52 H88 Z" fill="#f3e6d4"/>
+  <path d="M100 86 v70 M78 112 h44" fill="none" stroke="#e85d4c" stroke-width="10" stroke-linecap="round"/>
+  <text x="100" y="178" text-anchor="middle" fill="#f3e6d4" font-family="Georgia, serif" font-size="18" letter-spacing="4">CTK</text>
+</svg>
