@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=49">
+  <link rel="stylesheet" href="css/style.css?v=59">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -56,22 +56,10 @@
         <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
         <div class="back-disc" aria-hidden="true"></div>
         <div class="slash-deco"></div>
-        <h1>Put your OpenRouter key on this computer.</h1>
-        <p>You need a free <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">OpenRouter</a> account. openrouter is a service that connects AI models to websites like this one. This page picks the best AI model for you automatically from the ones that are curently avalable, free, and reasonably fast at responding.</p>
-        <p>Go to <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">openrouter.ai</a> and sign in, you can do this with your school google account. Open <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Settings, then Keys</a>, then click Create a new key. Give it a name such as Class analyser. Copy the key (it starts with sk-or-) and paste it below. this is the key that this website will send to OpenRouter in order to identify you. You only need to do this once.</p>
-        <p>Openrouter has both free and paid models, the free modles are curently of comparible intelligence to the ones avalable through the free plans for chat GPT or Google Gemini, although they will respond slower.</p>
-        <div class="field">
-          <label for="api-key">OpenRouter API key</label>
-          <div class="field-key">
-            <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-v1-…">
-            <button type="button" class="pill" id="toggle-key" aria-controls="api-key" aria-pressed="false">Show</button>
-          </div>
-        </div>
-        <div class="field">
-          <label for="referer">Site URL for OpenRouter (optional)</label>
-          <input id="referer" type="url" placeholder="https://yoursite.github.io/class-grades-analyser/">
-        </div>
-        <div class="actions">
+        <h1>Put your AI key on this computer.</h1>
+        <p>This website talks to an AI on your behalf. You need an API key from one of the services below. Keys stay on this computer. You can save more than one, then choose which service to use before you press Go.</p>
+        <div id="provider-key-guide" class="provider-key-guide"></div>
+        <div class="actions" id="key-actions">
           <button type="button" class="pill" id="save-key">Save and go on</button>
         </div>
       </div>
@@ -172,15 +160,13 @@
             </div>
           </div>
           <div class="field">
-            <label for="system-prompt">System prompt. You can edit this before it is sent.</label>
-            <textarea id="system-prompt" class="payload-edit" rows="16" spellcheck="true"></textarea>
+            <label for="outgoing-edit">Exact message. You can edit the instructions and the class data before it is sent.</label>
+            <textarea id="outgoing-edit" class="payload-edit" rows="28" spellcheck="true"></textarea>
           </div>
-          <p class="prompt-sub">User message and class data (not edited here)</p>
-          <pre class="payload" id="payload-preview"></pre>
         </details>
         <details class="drawer">
           <summary>What to include in the report</summary>
-          <p>Tick the sections the model should write. Changing the ticks rewrites the system prompt above. You can then edit the wording in Exact message.</p>
+          <p>Tick the sections the model should write. Changing the ticks rewrites the exact message above. You can then edit the wording there.</p>
           <p class="prompt-picks-label">In the current prompt</p>
           <div class="prompt-list" id="prompt-core"></div>
           <p class="prompt-picks-label">Extra sections you can add</p>
@@ -231,14 +217,18 @@
         </div>
         <aside class="analyse-side">
           <h2>The model</h2>
+          <div class="field" id="provider-pick-wrap">
+            <label for="provider-select">AI provider</label>
+            <select id="provider-select"></select>
+          </div>
           <div class="field" id="model-pick-wrap">
             <label for="model-select">Reasoning model</label>
             <select id="model-select"></select>
-            <p class="status-pill" id="model-status">Looking up free models…</p>
+            <p class="status-pill" id="model-status">Looking up models…</p>
           </div>
           <p id="run-status"></p>
           <div class="metrics">
-            <div class="metric"><b id="metric-tps">—</b><span>words per second, as OpenRouter reports it now</span></div>
+            <div class="metric"><b id="metric-tps">—</b><span>tokens per second, typical speed for this model</span></div>
             <div class="metric"><b id="metric-reason">—</b><span>reasoning score against the current top model</span></div>
             <div class="metric"><b id="metric-released">—</b><span>release date of the model</span></div>
           </div>
@@ -261,12 +251,32 @@
             <button type="button" class="pill" id="copy-report">Copy</button>
             <button type="button" class="pill" id="new-class">New class</button>
           </div>
+          <div class="usage-dock" id="usage-dock">
+            <div class="metric usage-split">
+              <span class="usage-caption">tokens used in this chat, including follow-ups</span>
+              <div class="usage-row" data-kind="input">
+                <span class="usage-kind">input</span>
+                <b id="metric-tokens-in">0</b>
+                <b class="usage-cost" id="metric-cost-in">—</b>
+              </div>
+              <div class="usage-row" data-kind="output">
+                <span class="usage-kind">output</span>
+                <b id="metric-tokens-out">0</b>
+                <b class="usage-cost" id="metric-cost-out">—</b>
+              </div>
+              <div class="usage-row" data-kind="total">
+                <span class="usage-kind">total</span>
+                <b></b>
+                <b class="usage-cost" id="metric-cost-total">—</b>
+              </div>
+            </div>
+          </div>
         </aside>
       </div>
     </section>
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=45"></script>
+  <script type="module" src="js/app.js?v=65"></script>
 </body>
 </html>

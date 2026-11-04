@@ -1,6 +1,9 @@
-const PLACEHOLDER = `<div class="table-gen" role="status">
+const PLACEHOLDER = `<div class="table-gen" role="status" aria-label="Generating table">
   <div class="table-gen-shine" aria-hidden="true"></div>
-  <span class="table-gen-label">Generating table</span>
+  <div class="table-gen-copy">
+    <span class="table-gen-label">Generating table</span>
+    <div class="table-gen-reel" aria-live="polite"></div>
+  </div>
   <aside class="table-gen-stats">
     <p>model has thought for</p>
     <b class="table-gen-time">0s</b>
@@ -102,7 +105,7 @@ export function splitStreamMarkdown(md, done = false) {
 }
 
 function wrapWords(root) {
-  const skip = '.report-table, .table-gen, pre, code, .cursor';
+  const skip = '.report-table, .table-gen, .table-gen-reel, pre, code, .cursor';
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
@@ -173,11 +176,41 @@ export function attachReportStream({ mount, toHtml }) {
   let waiting = null;
   let lastPush = 0;
   let resolveDone = null;
-  let tableHold = { start: 0, raf: 0, at: -1 };
+  let tableHold = { start: 0, raf: 0, at: -1, thinkFrom: 0 };
+  let thinkAll = '';
 
   function countWords(text) {
     const t = String(text || '').trim();
     return t ? t.split(/\s+/).length : 0;
+  }
+
+  function tableThinkLines() {
+    return String(thinkAll || '').slice(tableHold.thinkFrom)
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.slice(0, 280));
+  }
+
+  function paintTableReel(gen) {
+    if (!gen) return;
+    const reel = gen.querySelector('.table-gen-reel');
+    if (!reel) return;
+    const lines = tableThinkLines();
+    let nodes = reel.querySelectorAll('.think-line');
+    if (nodes.length > lines.length || (nodes.length && lines.length && nodes[0].textContent !== lines[0])) {
+      reel.innerHTML = '';
+      nodes = reel.querySelectorAll('.think-line');
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      if (lines[i] != null && nodes[i].textContent !== lines[i]) nodes[i].textContent = lines[i];
+    }
+    for (let i = reel.querySelectorAll('.think-line').length; i < lines.length; i++) {
+      const div = document.createElement('div');
+      div.className = 'think-line';
+      div.textContent = lines[i];
+      reel.appendChild(div);
+    }
   }
 
   function formatHoldTime(ms) {
@@ -195,6 +228,7 @@ export function attachReportStream({ mount, toHtml }) {
     timeEl.textContent = formatHoldTime(tableHold.start ? performance.now() - tableHold.start : 0);
     const n = countWords(heldText);
     wordEl.textContent = `${n} word${n === 1 ? '' : 's'}`;
+    paintTableReel(gen);
   }
 
   function stopTableStats() {
@@ -202,6 +236,7 @@ export function attachReportStream({ mount, toHtml }) {
     tableHold.raf = 0;
     tableHold.at = -1;
     tableHold.start = 0;
+    tableHold.thinkFrom = 0;
   }
 
   function tickTableStats() {
@@ -219,6 +254,9 @@ export function attachReportStream({ mount, toHtml }) {
     if (tableHold.at !== holdAt) {
       tableHold.at = holdAt;
       tableHold.start = performance.now();
+      tableHold.thinkFrom = thinkAll.length;
+      const reel = el().querySelector('.table-gen-reel');
+      if (reel) reel.innerHTML = '';
     }
     const gen = el().querySelector('.table-gen.is-live');
     paintTableStats(gen, heldText);
@@ -414,7 +452,16 @@ export function attachReportStream({ mount, toHtml }) {
     waiting = setTimeout(step, interval());
   }
 
+  function pushThink(all) {
+    thinkAll = String(all || '');
+    const { holdingTable, heldText } = split();
+    if (!holdingTable) return;
+    const gen = el().querySelector('.table-gen.is-live');
+    if (gen) paintTableReel(gen);
+  }
+
   function reset({ seed = '' } = {}) {
+    thinkAll = '';
     stopTableStats();
     if (waiting) clearTimeout(waiting);
     waiting = null;
@@ -467,5 +514,5 @@ export function attachReportStream({ mount, toHtml }) {
     el().querySelectorAll('.cursor').forEach((n) => n.remove());
   }
 
-  return { reset, push, finish, stop };
+  return { reset, push, pushThink, finish, stop };
 }

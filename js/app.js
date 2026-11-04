@@ -2,10 +2,12 @@ import * as pdfjsLib from '../vendor/pdf.min.js';
 import { extractPdfStructure } from './pdf-extract.js';
 import { parseReport, classifyValue } from './parse-report.js';
 import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=2';
-import { fetchModels, rankFreeReasoningModels, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID } from './ai-client.js?v=4';
-import { buildOutgoing, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=4';
+import { listModelsForProvider, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID, estimateTextTokens, reportCostFromRates, reportUsageEstimate, looksReasoningModel, usageCost, usageSplit, formatGbp, USD_TO_GBP } from './ai-client.js?v=13';
+import { buildOutgoing, parseOutgoingCombined, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=5';
 import { renderMarkdown, escapeHtml } from './markdown.js';
-import { attachReportStream } from './report-stream.js?v=2';
+import { attachReportStream } from './report-stream.js?v=4';
+import { AI_PROVIDERS, emptyApiKeys, providerLabel, providersWithKeys } from './ai-providers.js?v=4';
+import { mountProviderKeyGuide } from './provider-key-guide.js?v=4';
 
 window.__appBooted = true;
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.js', import.meta.url).toString();
@@ -18,8 +20,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const state = {
   settings: {
-    apiKey: '', rememberKey: true, provider: 'openrouter', customUrl: '', customModel: '',
-    dataCollection: 'deny', includePastoral: false, model: 'auto', referer: '',
+    apiKey: '', apiKeys: emptyApiKeys(), rememberKey: true, provider: 'openrouter',
+    customUrl: '', customModel: '', dataCollection: 'deny', includePastoral: false, model: 'auto',
   },
   sessionKey: '',
   files: [],
@@ -36,11 +38,198 @@ const state = {
   templateTopics: [],
   screen: 'home',
   analysePhase: 'idle',
-  systemPromptTouched: false,
+  outgoingTouched: false,
+  usage: emptyUsage(),
+  reportId: null,
 };
 
 let transitioning = false;
 let thinkTimer = { start: 0, raf: 0, words: 0 };
+
+function emptyUsage() {
+  return {
+    prompt: 0, completion: 0, reasoning: 0,
+    livePrompt: 0, liveCompletion: 0, liveReasoning: 0,
+    rates: null, modelId: '',
+  };
+}
+
+function resetUsage() {
+  state.usage = emptyUsage();
+  paintUsage();
+}
+
+function ratesForModel(id) {
+  if (id === FREE_ROUTER_ID) return { prompt: 0, completion: 0, reasoning: 0 };
+  const hit = state.rankedAll.find((m) => m.id === id)
+    || state.ranked.find((m) => m.id === id)
+    || state.models.find((m) => m.id === id);
+  if (hit && hit.rates) return hit.rates;
+  if (!id || id === 'auto') return (state.ranked[0] && state.ranked[0].rates) || null;
+  return null;
+}
+
+function currentOutgoingText() {
+  const ta = $('outgoing-edit');
+  if (ta && ta.value.trim()) return ta.value;
+  return (state.outgoing && state.outgoing.combined) || '';
+}
+
+function optionLabel(name, rates, model) {
+  const reasoning = !!(model && (model.reasoning || looksReasoningModel(model.id)));
+  const cost = reportCostFromRates(rates, reportUsageEstimate({
+    inputText: currentOutgoingText(),
+    reasoning,
+  }));
+  return `${name} · ${formatGbp(cost)} per report`;
+}
+
+function displayedUsage() {
+  const u = state.usage || emptyUsage();
+  return {
+    prompt: u.prompt + u.livePrompt,
+    completion: u.completion + u.liveCompletion,
+    reasoning: u.reasoning + u.liveReasoning,
+  };
+}
+
+function roundMoney(n) {
+  return n == null || !Number.isFinite(n) ? null : Math.round(n * 1e6) / 1e6;
+}
+
+function usagePartsFromSnap(snap) {
+  if (!snap || typeof snap !== 'object') return { prompt: 0, completion: 0, reasoning: 0 };
+  const hasParts = snap.prompt != null || snap.completion != null || snap.reasoning != null;
+  if (hasParts) {
+    return {
+      prompt: Number(snap.prompt) || 0,
+      completion: Number(snap.completion) || 0,
+      reasoning: Number(snap.reasoning) || 0,
+    };
+  }
+  return {
+    prompt: Number(snap.inputTokens) || 0,
+    completion: Number(snap.outputTokens) || Number(snap.tokens) || 0,
+    reasoning: 0,
+  };
+}
+
+function formatSplitCostHtml(usd, rates) {
+  if (rates && !(Number(rates.prompt) || Number(rates.completion))) return 'free';
+  if (usd == null || !Number.isFinite(Number(usd))) return '—';
+  return formatChatCostHtml(usd);
+}
+
+function splitView(usage, rates, snap) {
+  const split = usageSplit(rates, usage);
+  let inUsd = split.inputUsd;
+  let outUsd = split.outputUsd;
+  if (inUsd == null && snap && Number.isFinite(Number(snap.inputUsd))) inUsd = Number(snap.inputUsd);
+  if (outUsd == null && snap && Number.isFinite(Number(snap.outputUsd))) outUsd = Number(snap.outputUsd);
+  let totalUsd = split.totalUsd;
+  if (totalUsd == null && inUsd != null && outUsd != null) totalUsd = inUsd + outUsd;
+  if (totalUsd == null && snap && Number.isFinite(Number(snap.usd))) totalUsd = Number(snap.usd);
+  return {
+    inputTokens: split.inputTokens,
+    outputTokens: split.outputTokens,
+    inputHtml: formatSplitCostHtml(inUsd, rates),
+    outputHtml: formatSplitCostHtml(outUsd, rates),
+    totalHtml: formatSplitCostHtml(totalUsd, rates),
+  };
+}
+
+function paintUsage() {
+  const tokIn = $('metric-tokens-in');
+  const tokOut = $('metric-tokens-out');
+  const costIn = $('metric-cost-in');
+  const costOut = $('metric-cost-out');
+  const costTotal = $('metric-cost-total');
+  if (!tokIn || !tokOut || !costIn || !costOut || !costTotal) return;
+  const view = splitView(displayedUsage(), state.usage.rates);
+  tokIn.textContent = view.inputTokens.toLocaleString('en-GB');
+  tokOut.textContent = view.outputTokens.toLocaleString('en-GB');
+  costIn.innerHTML = view.inputHtml;
+  costOut.innerHTML = view.outputHtml;
+  costTotal.innerHTML = view.totalHtml;
+}
+
+function formatChatCostHtml(usdAmount) {
+  const gbp = Math.max(0, Number(usdAmount) * USD_TO_GBP);
+  if (!Number.isFinite(gbp)) return '—';
+  const millipence = Math.round(gbp * 100000);
+  const pounds = Math.floor(millipence / 100000);
+  const rest = millipence % 100000;
+  const pence = Math.floor(rest / 1000);
+  const frac = rest % 1000;
+  return `£${pounds.toLocaleString('en-GB')}.${String(pence).padStart(2, '0')}<small class="pence-frac">${String(frac).padStart(3, '0')}</small>`;
+}
+
+function usageBreakdownHtml(snap) {
+  const usage = usagePartsFromSnap(snap);
+  const rates = (snap && snap.rates) || null;
+  const view = splitView(usage, rates, snap);
+  return `<div class="report-usage">
+    <div class="usage-row" data-kind="input"><span class="usage-kind">input</span><span class="usage-tokens">${view.inputTokens.toLocaleString('en-GB')}</span><span class="usage-cost">${view.inputHtml}</span></div>
+    <div class="usage-row" data-kind="output"><span class="usage-kind">output</span><span class="usage-tokens">${view.outputTokens.toLocaleString('en-GB')}</span><span class="usage-cost">${view.outputHtml}</span></div>
+    <div class="usage-row" data-kind="total"><span class="usage-kind">total</span><span class="usage-tokens"></span><span class="usage-cost">${view.totalHtml}</span></div>
+  </div>`;
+}
+
+function usageSnapshot() {
+  const shown = displayedUsage();
+  const rates = state.usage.rates || null;
+  const split = usageSplit(rates, shown);
+  const usd = usageCost(rates, shown);
+  return {
+    tokens: split.inputTokens + split.outputTokens,
+    prompt: shown.prompt,
+    completion: shown.completion,
+    reasoning: shown.reasoning,
+    inputTokens: split.inputTokens,
+    outputTokens: split.outputTokens,
+    usd: roundMoney(usd),
+    gbp: roundMoney(usd == null ? null : usd * USD_TO_GBP),
+    inputUsd: roundMoney(split.inputUsd),
+    outputUsd: roundMoney(split.outputUsd),
+    inputGbp: roundMoney(split.inputUsd == null ? null : split.inputUsd * USD_TO_GBP),
+    outputGbp: roundMoney(split.outputUsd == null ? null : split.outputUsd * USD_TO_GBP),
+    cost: formatGbp(usd),
+    inputCost: formatGbp(split.inputUsd),
+    outputCost: formatGbp(split.outputUsd),
+    model: (state.result && state.result.model) || state.usage.modelId || '',
+    provider: activeProvider(),
+    rates,
+  };
+}
+
+function usageHiddenComment(snap) {
+  const json = JSON.stringify(snap || usageSnapshot()).replace(/--/g, '\\u002d\\u002d');
+  return `<!--cga-usage:${json}-->`;
+}
+
+function parseUsageComment(text) {
+  const m = String(text || '').match(/<!--cga-usage:([\s\S]*?)-->/);
+  if (!m) return null;
+  try { return JSON.parse(m[1].replace(/\\u002d\\u002d/g, '--')); } catch { return null; }
+}
+
+function stripUsageComment(text) {
+  return String(text || '').replace(/\n*<!--cga-usage:[\s\S]*?-->\s*$/g, '').replace(/\s+$/, '');
+}
+
+function applyUsageSnapshot(snap) {
+  if (!snap) { resetUsage(); return; }
+  const parts = usagePartsFromSnap(snap);
+  state.usage = {
+    ...emptyUsage(),
+    prompt: parts.prompt,
+    completion: parts.completion,
+    reasoning: parts.reasoning,
+    rates: snap.rates || null,
+    modelId: snap.model || '',
+  };
+  paintUsage();
+}
 
 function countThinkWords(text) {
   const t = String(text || '').trim();
@@ -82,9 +271,19 @@ function stopThinkStats() {
   thinkTimer.raf = 0;
 }
 
-function currentKey() { return (state.settings.apiKey || state.sessionKey || '').trim(); }
-function isOpenRouter() { return state.settings.provider !== 'custom'; }
-function baseUrl() { return isOpenRouter() ? OPENROUTER_BASE : (state.settings.customUrl || '').trim(); }
+function activeProvider() { return state.settings.provider || 'openrouter'; }
+function currentKey() {
+  const keys = state.settings.apiKeys || {};
+  return (keys[activeProvider()] || state.settings.apiKey || state.sessionKey || '').trim();
+}
+function isOpenRouter() { return activeProvider() === 'openrouter'; }
+function baseUrl() {
+  const info = AI_PROVIDERS[activeProvider()];
+  return (info && info.openaiBaseUrl) || OPENROUTER_BASE;
+}
+function hasAnyKey() {
+  return providersWithKeys(state.settings.apiKeys).length > 0 || !!(state.settings.apiKey || state.sessionKey);
+}
 
 function showScreen(name) {
   state.screen = name;
@@ -92,7 +291,10 @@ function showScreen(name) {
     s.classList.toggle('on', s.id === `screen-${name}`);
   });
   if (name === 'reports') renderReportList();
-  if (name === 'analyse') updateModelCard();
+  if (name === 'analyse') {
+    updateModelCard();
+    paintUsage();
+  }
 }
 
 async function goTo(name) {
@@ -328,7 +530,7 @@ async function playTransition(from, to) {
 }
 
 function goInitial() {
-  showScreen(currentKey() ? 'home' : 'key');
+  showScreen(hasAnyKey() ? 'home' : 'key');
 }
 
 function loadSettings() {
@@ -336,13 +538,18 @@ function loadSettings() {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) Object.assign(state.settings, JSON.parse(raw));
   } catch { /* ignore */ }
-  $('api-key').value = state.settings.apiKey || '';
-  if (state.settings.referer) $('referer').value = state.settings.referer;
+  state.settings.apiKeys = { ...emptyApiKeys(), ...(state.settings.apiKeys || {}) };
+  if (state.settings.apiKey && !state.settings.apiKeys.openrouter) {
+    state.settings.apiKeys.openrouter = state.settings.apiKey;
+  }
+  if (state.settings.provider === 'custom') state.settings.provider = 'openrouter';
 }
 
 function saveSettings() {
   const s = state.settings;
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKey: s.rememberKey ? s.apiKey : '' })); } catch { /* ignore */ }
+  const apiKeys = s.rememberKey ? s.apiKeys : emptyApiKeys();
+  const apiKey = s.rememberKey ? (apiKeys.openrouter || '') : '';
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKeys, apiKey })); } catch { /* ignore */ }
 }
 
 function setMessage(id, text, kind = '') {
@@ -392,22 +599,16 @@ function wireChrome() {
 
 function wireSettings() {
   $('save-key').addEventListener('click', () => {
-    const key = $('api-key').value.trim();
     state.settings.rememberKey = true;
-    state.settings.apiKey = key;
-    state.settings.referer = $('referer').value.trim();
+    state.settings.apiKey = (state.settings.apiKeys.openrouter || '').trim();
+    const have = providersWithKeys(state.settings.apiKeys);
+    if (!have.length) return;
+    if (!have.includes(state.settings.provider)) state.settings.provider = have[0];
     state.sessionKey = '';
     saveSettings();
-    if (key) goTo('home');
+    goTo('home');
+    populateProviderSelect();
     loadModels();
-  });
-  $('toggle-key').addEventListener('click', () => {
-    const input = $('api-key');
-    const btn = $('toggle-key');
-    const show = input.type === 'password';
-    input.type = show ? 'text' : 'password';
-    btn.textContent = show ? 'Hide' : 'Show';
-    btn.setAttribute('aria-pressed', String(show));
   });
 }
 
@@ -703,19 +904,16 @@ function doRefreshPayload() {
     extraIds: picks.extraIds,
     otherText,
   });
-  const ta = $('system-prompt');
-  if (ta && !state.systemPromptTouched) ta.value = built.system;
-  const system = (ta && ta.value.trim()) ? ta.value : built.system;
-  state.outgoing = {
-    system,
-    user: built.user,
-    combined: `SYSTEM PROMPT\n\n${system}\n\n==========\n\nUSER MESSAGE\n\n${built.user}`,
-  };
+  const ta = $('outgoing-edit');
+  if (ta && state.outgoingTouched) {
+    state.outgoing = parseOutgoingCombined(ta.value);
+  } else {
+    if (ta) ta.value = built.combined;
+    state.outgoing = built;
+  }
   state.guard = guardPayload(state.outgoing.combined, ds);
-  const pre = $('payload-preview');
-  if (drawerIsOpen(pre)) pre.textContent = state.outgoing.user;
-  else pre.textContent = '';
   renderGuard();
+  relabelModelOptions();
 }
 
 function renderGuard() {
@@ -748,18 +946,68 @@ async function loadTemplate(file) {
   }
 }
 
+function populateProviderSelect() {
+  const sel = $('provider-select');
+  if (!sel) return;
+  const have = providersWithKeys(state.settings.apiKeys);
+  const prev = state.settings.provider;
+  sel.innerHTML = '';
+  for (const id of have) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = providerLabel(id);
+    sel.appendChild(o);
+  }
+  if (!have.length) {
+    const o = document.createElement('option');
+    o.value = 'openrouter';
+    o.textContent = 'Add an API key first';
+    sel.appendChild(o);
+  }
+  state.settings.provider = have.includes(prev) ? prev : (have[0] || 'openrouter');
+  sel.value = state.settings.provider;
+}
+
 async function loadModels() {
-  if (!isOpenRouter()) { populateModelSelect(); return; }
-  $('model-status').textContent = 'Loading the list of free models…';
+  populateProviderSelect();
+  $('model-status').textContent = 'Loading the list of models…';
+  if (!currentKey()) {
+    state.models = []; state.ranked = []; state.rankedAll = [];
+    $('model-status').textContent = 'Add an API key, then pick a provider.';
+    populateModelSelect();
+    return;
+  }
   try {
-    state.models = await fetchModels(OPENROUTER_BASE, currentKey());
-    state.ranked = rankFreeReasoningModels(state.models, { requireReasoning: true });
-    state.rankedAll = rankFreeReasoningModels(state.models, { requireReasoning: false });
+    const res = await listModelsForProvider(activeProvider(), currentKey());
+    state.models = res.models || [];
+    state.ranked = res.ranked || [];
+    state.rankedAll = res.rankedAll || [];
+    if (res.error) $('model-status').textContent = `Using a short list (${res.error}).`;
   } catch (err) {
     state.models = []; state.ranked = []; state.rankedAll = [];
     $('model-status').textContent = `The model list could not be loaded (${err.message}).`;
   }
   populateModelSelect();
+}
+
+function modelForOption(id) {
+  return state.rankedAll.find((m) => m.id === id) || state.ranked.find((m) => m.id === id) || { id, name: id, reasoning: looksReasoningModel(id) };
+}
+
+function relabelModelOptions() {
+  const sel = $('model-select');
+  if (!sel || !sel.options.length) return;
+  for (const o of sel.options) {
+    if (o.value === 'auto') {
+      const best = state.ranked[0];
+      o.textContent = best ? optionLabel(`Automatic – ${best.name}`, best.rates, best) : 'Automatic';
+    } else if (o.value === FREE_ROUTER_ID) {
+      o.textContent = optionLabel('OpenRouter free router', { prompt: 0, completion: 0 }, { id: FREE_ROUTER_ID });
+    } else {
+      const m = modelForOption(o.value);
+      o.textContent = optionLabel(m.name || o.value, m.rates, m);
+    }
+  }
 }
 
 function populateModelSelect() {
@@ -769,28 +1017,49 @@ function populateModelSelect() {
   const auto = document.createElement('option');
   auto.value = 'auto';
   const best = state.ranked[0];
-  auto.textContent = best ? `Automatic – ${best.name}` : 'Automatic';
+  auto.textContent = best ? optionLabel(`Automatic – ${best.name}`, best.rates, best) : 'Automatic';
   sel.appendChild(auto);
-  for (const m of state.ranked.slice(0, 20)) {
-    const o = document.createElement('option'); o.value = m.id; o.textContent = m.name; sel.appendChild(o);
+  const list = isOpenRouter() ? state.ranked.slice(0, 20) : state.ranked.slice(0, 40);
+  for (const m of list) {
+    const o = document.createElement('option'); o.value = m.id; o.textContent = optionLabel(m.name, m.rates, m); sel.appendChild(o);
   }
-  const fr = document.createElement('option'); fr.value = FREE_ROUTER_ID; fr.textContent = 'OpenRouter free router';
-  sel.appendChild(fr);
+  if (isOpenRouter()) {
+    const fr = document.createElement('option'); fr.value = FREE_ROUTER_ID; fr.textContent = optionLabel('OpenRouter free router', { prompt: 0, completion: 0 }, { id: FREE_ROUTER_ID });
+    sel.appendChild(fr);
+  }
   sel.value = [...sel.options].some((o) => o.value === prev) ? prev : 'auto';
-  $('model-status').textContent = best
-    ? `${state.ranked.length} free reasoning models are available. First pick: ${best.name}.`
-    : 'Using the free router.';
+  if (isOpenRouter()) {
+    $('model-status').textContent = best
+      ? `${state.ranked.length} free reasoning models are available. First pick: ${best.name}.`
+      : 'Using the free router.';
+  } else {
+    $('model-status').textContent = best
+      ? `${state.ranked.length} models from ${providerLabel(activeProvider())}. First pick: ${best.name}.`
+      : `No models listed for ${providerLabel(activeProvider())}.`;
+  }
   updateModelCard();
 }
 
 function candidateModels() {
-  if (!isOpenRouter()) return [state.settings.customModel || $('model-select').value].filter(Boolean);
   const chosen = $('model-select').value || 'auto';
+  if (!isOpenRouter()) {
+    if (chosen === 'auto') return state.ranked.slice(0, 5);
+    const rest = state.ranked.filter((m) => m.id !== chosen).slice(0, 4);
+    const meta = state.rankedAll.find((m) => m.id === chosen) || chosen;
+    return [meta, ...rest];
+  }
   const top = state.ranked.slice(0, 5);
   if (chosen === 'auto') return [...top, FREE_ROUTER_ID];
   const rest = top.filter((m) => m.id !== chosen);
   const chosenMeta = state.rankedAll.find((m) => m.id === chosen) || chosen;
   return [chosenMeta, ...rest, FREE_ROUTER_ID].filter((m, i, arr) => arr.findIndex((x) => (x.id || x) === (m.id || m)) === i);
+}
+
+function followUpCandidates() {
+  const id = (state.result && state.result.model) || state.usage.modelId || '';
+  if (!id || id === 'auto') return candidateModels();
+  const meta = state.rankedAll.find((m) => m.id === id) || state.ranked.find((m) => m.id === id) || { id };
+  return [meta];
 }
 
 function formatReleased(ts) {
@@ -808,9 +1077,9 @@ async function updateModelCard() {
   $('metric-reason').textContent = '…';
   $('metric-released').textContent = formatReleased((meta && meta.created) || (raw && raw.created));
   try {
-    const card = await fetchModelCard(id, currentKey());
+    const card = await fetchModelCard(id, state.settings.apiKeys.openrouter || '', activeProvider());
     if (!card) return;
-    $('metric-tps').textContent = card.wordsPerSec != null ? String(card.wordsPerSec) : '—';
+    $('metric-tps').textContent = card.tokensPerSec != null ? String(card.tokensPerSec) : '—';
     const top = card.intelligenceTop != null ? Math.round(card.intelligenceTop) : '—';
     const mine = card.intelligence != null ? Math.round(card.intelligence) : '—';
     $('metric-reason').textContent = `${mine} / ${top}`;
@@ -830,6 +1099,7 @@ function setAnalysePhase(phase) {
   $('report').hidden = !hasReport && (phase === 'idle' || phase === 'thinking');
   $('extra-wrap').hidden = phase !== 'idle';
   $('model-pick-wrap').hidden = phase !== 'idle';
+  $('provider-pick-wrap').hidden = phase !== 'idle';
   $('go-wrap').hidden = phase !== 'idle' && phase !== 'error';
   $('ident-wrap').hidden = phase !== 'streaming' && phase !== 'done';
   $('run-wrap').hidden = phase !== 'thinking' && phase !== 'streaming';
@@ -885,7 +1155,9 @@ function updateThinkReel(text) {
 }
 
 function assistantHtml(md) {
-  if (!state.showNames || !state.dataset) return renderMarkdown(md);
+  md = stripUsageComment(md);
+  const withComment = (html) => `${html}\n${usageHiddenComment()}`;
+  if (!state.showNames || !state.dataset) return withComment(renderMarkdown(md));
   const named = reidentify(md, state.dataset);
   const marks = [];
   let marked = named;
@@ -900,11 +1172,12 @@ function assistantHtml(md) {
       return `${pre}\uE000${id}\uE001`;
     });
   }
-  return renderMarkdown(marked).replace(/\uE000(\d+)\uE001/g, (all, id) => {
+  const html = renderMarkdown(marked).replace(/\uE000(\d+)\uE001/g, (all, id) => {
     const mark = marks[Number(id)];
     if (!mark) return all;
     return `<span class="name" title="${escapeHtml(mark.code)}">${escapeHtml(mark.name)}</span>`;
   });
+  return withComment(html);
 }
 
 const reportStream = attachReportStream({
@@ -945,13 +1218,27 @@ async function runAnalysis({ followUp = false } = {}) {
     return;
   }
   if (!followUp) {
+    const system = (state.outgoing.system || '').trim();
+    const user = (state.outgoing.user || state.outgoing.combined || '').trim();
     state.messages = [
-      { role: 'system', content: state.outgoing.system },
-      { role: 'user', content: state.outgoing.user },
+      ...(system ? [{ role: 'system', content: system }] : []),
+      { role: 'user', content: user },
     ];
     state.result = { markdown: '', model: '', reasoning: '' };
     $('report').innerHTML = '';
+    state.reportId = `${Date.now()}`;
+    resetUsage();
+  } else if (state.reportId != null && state.reportId !== '') {
+    state.reportId = String(state.reportId);
   }
+  state.usage.livePrompt = estimateTextTokens(state.messages.map((m) => m.content).join('\n'));
+  state.usage.liveCompletion = 0;
+  state.usage.liveReasoning = 0;
+  const candidates = followUp ? followUpCandidates() : candidateModels();
+  const firstCand = candidates[0];
+  state.usage.modelId = (firstCand && firstCand.id) || firstCand || '';
+  state.usage.rates = ratesForModel(state.usage.modelId);
+  paintUsage();
   state.abort = new AbortController();
   const prior = followUp && state.result && state.result.markdown ? state.result.markdown : '';
   reportStream.reset({ seed: prior ? `${prior}\n\n---\n\n` : '' });
@@ -963,7 +1250,8 @@ async function runAnalysis({ followUp = false } = {}) {
   let sawAnswer = false;
   try {
     const res = await runWithFallback({
-      candidates: candidateModels(),
+      candidates,
+      provider: activeProvider(),
       baseUrl: baseUrl(),
       apiKey: currentKey(),
       messages: state.messages,
@@ -972,6 +1260,9 @@ async function runAnalysis({ followUp = false } = {}) {
       signal: state.abort.signal,
       onModelChange: (model) => {
         state.result.model = model;
+        state.usage.modelId = model;
+        state.usage.rates = ratesForModel(model) || state.usage.rates;
+        paintUsage();
         const s = `Trying ${model}…`;
         $('run-status').textContent = s;
         if (!sawAnswer) addThinkLine(s);
@@ -982,6 +1273,9 @@ async function runAnalysis({ followUp = false } = {}) {
       },
       onReasoning: (chunk, all) => {
         state.result.reasoning = all;
+        reportStream.pushThink(all);
+        state.usage.liveReasoning = estimateTextTokens(all);
+        paintUsage();
         if (!sawAnswer) {
           setAnalysePhase('thinking');
           updateThinkReel(all);
@@ -989,6 +1283,8 @@ async function runAnalysis({ followUp = false } = {}) {
       },
       onDelta: (chunk, all) => {
         state.result.markdown = prior ? `${prior}\n\n---\n\n${all}` : all;
+        state.usage.liveCompletion = estimateTextTokens(all);
+        paintUsage();
         if (!sawAnswer) {
           sawAnswer = true;
           setAnalysePhase('streaming');
@@ -1001,6 +1297,20 @@ async function runAnalysis({ followUp = false } = {}) {
     state.result.markdown = prior ? `${prior}\n\n---\n\n${res.content}` : res.content;
     state.result.model = res.model;
     state.result.reasoning = res.reasoning || '';
+    state.usage.rates = ratesForModel(res.model) || state.usage.rates;
+    if (res.usage) {
+      state.usage.prompt += res.usage.prompt || 0;
+      state.usage.completion += res.usage.completion || 0;
+      state.usage.reasoning += res.usage.reasoning || 0;
+    } else {
+      state.usage.prompt += state.usage.livePrompt;
+      state.usage.completion += state.usage.liveCompletion;
+      state.usage.reasoning += state.usage.liveReasoning;
+    }
+    state.usage.livePrompt = 0;
+    state.usage.liveCompletion = 0;
+    state.usage.liveReasoning = 0;
+    paintUsage();
     state.messages.push({ role: 'assistant', content: res.content });
     reportStream.push(state.result.markdown);
     await reportStream.finish();
@@ -1028,28 +1338,84 @@ async function runAnalysis({ followUp = false } = {}) {
   }
 }
 
+function reportStamp(r) {
+  const t = Date.parse(r && (r.updatedAt || r.savedAt || r.createdAt));
+  if (Number.isFinite(t)) return t;
+  const n = Number(r && r.id);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function dedupeReports(list) {
+  const byId = new Map();
+  for (const r of list) {
+    if (!r || r.id == null || r.id === '') continue;
+    const id = String(r.id);
+    const rec = { ...r, id };
+    if (!rec.createdAt) rec.createdAt = rec.savedAt || rec.updatedAt;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, rec);
+      continue;
+    }
+    const keep = reportStamp(rec) >= reportStamp(prev) ? rec : prev;
+    const drop = keep === rec ? prev : rec;
+    keep.createdAt = drop.createdAt || keep.createdAt;
+    byId.set(id, keep);
+  }
+  return [...byId.values()].sort((a, b) => reportStamp(b) - reportStamp(a));
+}
+
+function reportsNeedPersist(before, after) {
+  if (!Array.isArray(before) || before.length !== after.length) return true;
+  const seen = new Set();
+  for (const r of before) {
+    if (!r || r.id == null || typeof r.id !== 'string') return true;
+    const k = String(r.id);
+    if (seen.has(k)) return true;
+    seen.add(k);
+  }
+  return false;
+}
+
+function persistReports(all) {
+  const next = dedupeReports(all).slice(0, 30);
+  try { localStorage.setItem(REPORTS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+  return next;
+}
+
 function saveReportRecord(rec) {
-  const all = loadReports().filter((r) => r.id !== rec.id);
-  all.unshift(rec);
-  try { localStorage.setItem(REPORTS_KEY, JSON.stringify(all.slice(0, 30))); } catch { /* quota */ }
+  const id = String(rec.id);
+  if (!id || id === 'undefined' || id === 'null') return;
+  rec = { ...rec, id };
+  const all = loadReports();
+  const existing = all.find((r) => String(r.id) === id);
+  if (existing) rec.createdAt = existing.createdAt || existing.savedAt || rec.createdAt;
+  else if (!rec.createdAt) rec.createdAt = rec.savedAt || rec.updatedAt || new Date().toISOString();
+  rec.updatedAt = rec.savedAt || rec.updatedAt || new Date().toISOString();
+  persistReports([rec, ...all.filter((r) => String(r.id) !== id)]);
 }
 
 function saveCurrentReport() {
   if (!state.result || !state.dataset) return;
   const meta = classMetaFromPupils(state.parsedPupils.length ? state.parsedPupils : state.dataset.pupils);
+  if (state.reportId == null || state.reportId === '') state.reportId = `${Date.now()}`;
+  state.reportId = String(state.reportId);
+  const now = new Date().toISOString();
   saveReportRecord({
-    id: `${Date.now()}`,
-    savedAt: new Date().toISOString(),
+    id: state.reportId,
+    savedAt: now,
+    updatedAt: now,
     subject: $('subject').value,
     yearGroup: $('year-group').value,
     classCode: state.dataset.classCode || meta.classCode || '',
     teacherName: state.dataset.teacherName || meta.teacherName || '',
     model: state.result.model,
-    markdown: state.result.markdown,
+    markdown: stripUsageComment(state.result.markdown),
     reasoning: state.result.reasoning,
     messages: state.messages,
     pupilKey: state.dataset.pupils.map((p) => ({ code: p.code, name: p.displayName })),
     codePrefix: state.dataset.codePrefix,
+    usage: usageSnapshot(),
   });
 }
 
@@ -1136,6 +1502,7 @@ async function importPastedReply(raw) {
     showPasteStatus('There is no reply to save.');
     return;
   }
+  const pastedUsage = parseUsageComment(markdown);
   const ctx = promptContextForPaste() || {};
   const rec = {
     id: `${Date.now()}`,
@@ -1143,12 +1510,13 @@ async function importPastedReply(raw) {
     subject: ctx.subject || '',
     yearGroup: ctx.yearGroup || '',
     model: 'Pasted',
-    markdown,
+    markdown: stripUsageComment(markdown),
     reasoning: '',
+    usage: pastedUsage || undefined,
     messages: [
       ...(ctx.system ? [{ role: 'system', content: ctx.system }] : []),
       ...(ctx.user || ctx.prompt ? [{ role: 'user', content: ctx.user || ctx.prompt }] : []),
-      { role: 'assistant', content: markdown },
+      { role: 'assistant', content: stripUsageComment(markdown) },
     ],
     pupilKey: ctx.pupilKey || [],
     codePrefix: ctx.codePrefix || '',
@@ -1177,23 +1545,18 @@ async function useClipboardReply() {
   }
 }
 
-function reportCreatedAt(r) {
-  const t = Date.parse(r && r.savedAt);
-  if (Number.isFinite(t)) return t;
-  const id = Number(r && r.id);
-  return Number.isFinite(id) ? id : 0;
-}
-
 function loadReports() {
   try {
-    const all = JSON.parse(localStorage.getItem(REPORTS_KEY) || '[]');
-    return all.sort((a, b) => reportCreatedAt(b) - reportCreatedAt(a));
+    const raw = JSON.parse(localStorage.getItem(REPORTS_KEY) || '[]');
+    const list = Array.isArray(raw) ? raw : [];
+    const next = dedupeReports(list);
+    if (reportsNeedPersist(list, next)) persistReports(next);
+    return next;
   } catch { return []; }
 }
 
 function deleteReport(id) {
-  const all = loadReports().filter((r) => r.id !== id);
-  try { localStorage.setItem(REPORTS_KEY, JSON.stringify(all)); } catch { /* quota */ }
+  persistReports(loadReports().filter((r) => String(r.id) !== String(id)));
   renderReportList();
 }
 
@@ -1250,12 +1613,13 @@ function renderReportList() {
     const cls = r.classCode || 'Class code not saved';
     const teacher = r.teacherName || 'Teacher not saved';
     return `<article class="report-card">
-      <button type="button" class="report-open" data-id="${escapeHtml(r.id)}">
+      <button type="button" class="report-open" data-id="${escapeHtml(String(r.id))}">
         <strong>${escapeHtml(cls)} · ${escapeHtml(teacher)}</strong>
         <span>${escapeHtml(r.subject || 'Class')} · Year ${escapeHtml(r.yearGroup || '?')}</span>
         <span>${new Date(r.savedAt).toLocaleString('en-GB')} · ${escapeHtml(r.model || '')}</span>
+        ${r.usage ? usageBreakdownHtml(r.usage) : ''}
       </button>
-      <button type="button" class="report-del" data-id="${escapeHtml(r.id)}" aria-label="Hold for 3 seconds to delete">Delete</button>
+      <button type="button" class="report-del" data-id="${escapeHtml(String(r.id))}" aria-label="Hold for 3 seconds to delete">Delete</button>
     </article>`;
   }).join('');
   list.querySelectorAll('.report-open').forEach((b) => b.addEventListener('click', () => openReport(b.dataset.id)));
@@ -1263,10 +1627,17 @@ function renderReportList() {
 }
 
 async function openReport(id) {
-  const rec = loadReports().find((r) => r.id === id);
+  const rec = loadReports().find((r) => String(r.id) === String(id));
   if (!rec) return;
   state.result = { markdown: rec.markdown, model: rec.model, reasoning: rec.reasoning || '' };
   state.messages = rec.messages || [];
+  state.reportId = String(rec.id);
+  if (rec.usage) applyUsageSnapshot(rec.usage);
+  else {
+    resetUsage();
+    state.usage.rates = ratesForModel(rec.model);
+    paintUsage();
+  }
   const restored = pupilsFromKey(rec.pupilKey, rec.codePrefix || '');
   if (restored.pupils.length) {
     const liveByCode = new Map((state.dataset && state.dataset.pupils ? state.dataset.pupils : []).map((p) => [p.code, p]));
@@ -1362,7 +1733,7 @@ function stamp() {
 function reportMarkdown(withNames) {
   if (!state.result) return '';
   const body = withNames && state.dataset ? reidentify(state.result.markdown, state.dataset) : state.result.markdown;
-  return `# Class analysis${$('subject').value ? ` – ${$('subject').value}` : ''}\n\n_Generated ${new Date().toLocaleString('en-GB')} by ${state.result.model}. ${withNames ? 'Contains pupil names.' : 'Codes only.'}_\n\n${body}\n`;
+  return `# Class analysis${$('subject').value ? ` – ${$('subject').value}` : ''}\n\n_Generated ${new Date().toLocaleString('en-GB')} by ${state.result.model}. ${withNames ? 'Contains pupil names.' : 'Codes only.'}_\n\n${stripUsageComment(body)}\n\n${usageHiddenComment()}\n`;
 }
 
 function resetClass() {
@@ -1375,20 +1746,22 @@ function resetClass() {
   state.result = null;
   state.messages = [];
   state.templateTopics = [];
+  state.reportId = null;
+  resetUsage();
   setAnalysePhase('idle');
   reportStream.reset();
   $('report').innerHTML = '';
   $('year-group').value = '';
   $('subject').value = '';
   $('extra-context').value = '';
-  state.systemPromptTouched = false;
+  state.outgoingTouched = false;
   if ($('prompt-other')) $('prompt-other').value = '';
   document.querySelectorAll('[data-prompt-sec]').forEach((el) => {
     const spec = CORE_SECTIONS.find((s) => s.id === el.dataset.promptSec);
     el.checked = !spec || spec.defaultOn;
   });
   document.querySelectorAll('[data-prompt-extra]').forEach((el) => { el.checked = false; });
-  if ($('system-prompt')) $('system-prompt').value = '';
+  if ($('outgoing-edit')) $('outgoing-edit').value = '';
 }
 
 function init() {
@@ -1403,21 +1776,18 @@ function init() {
   $('name-key').closest('details').addEventListener('toggle', () => {
     if (state.dataset) renderKeyTable(state.dataset);
   });
-  $('payload-preview').closest('details').addEventListener('toggle', () => {
-    const pre = $('payload-preview');
-    if (pre.closest('details').open && state.outgoing) pre.textContent = state.outgoing.user;
-    else pre.textContent = '';
-  });
-  $('prompt-core').addEventListener('change', () => { state.systemPromptTouched = false; refreshPayload(); });
-  $('prompt-extra').addEventListener('change', () => { state.systemPromptTouched = false; refreshPayload(); });
-  $('prompt-other').addEventListener('input', () => { state.systemPromptTouched = false; refreshPayload(); });
-  $('system-prompt').addEventListener('input', () => { state.systemPromptTouched = true; refreshPayload(); });
+  $('prompt-core').addEventListener('change', () => { state.outgoingTouched = false; refreshPayload(); });
+  $('prompt-extra').addEventListener('change', () => { state.outgoingTouched = false; refreshPayload(); });
+  $('prompt-other').addEventListener('input', () => { state.outgoingTouched = false; refreshPayload(); });
+  $('outgoing-edit').addEventListener('input', () => { state.outgoingTouched = true; refreshPayload(); });
   $('jump-payload').addEventListener('click', () => {
-    const pre = $('payload-preview');
-    const idx = pre.textContent.indexOf('--- DATA START ---');
+    const ta = $('outgoing-edit');
+    const idx = ta.value.indexOf('--- DATA START ---');
     if (idx >= 0) {
-      const ratio = idx / Math.max(1, pre.textContent.length);
-      pre.scrollTop = ratio * pre.scrollHeight;
+      ta.focus();
+      ta.setSelectionRange(idx, idx);
+      const ratio = idx / Math.max(1, ta.value.length);
+      ta.scrollTop = ratio * ta.scrollHeight;
     }
   });
   $('copy-prompt').addEventListener('click', () => copyPromptFile());
@@ -1427,6 +1797,12 @@ function init() {
   $('paste-save').addEventListener('click', () => importPastedReply($('paste-text').value));
   $('go').addEventListener('click', () => runAnalysis());
   $('stop').addEventListener('click', () => { if (state.abort) state.abort.abort(); });
+  $('provider-select').addEventListener('change', () => {
+    state.settings.provider = $('provider-select').value;
+    state.settings.model = 'auto';
+    saveSettings();
+    loadModels();
+  });
   $('model-select').addEventListener('change', () => { state.settings.model = $('model-select').value; saveSettings(); updateModelCard(); });
   $('show-names').addEventListener('click', () => applyNameMode(true));
   $('show-codes').addEventListener('click', () => applyNameMode(false));
@@ -1446,7 +1822,16 @@ function init() {
   });
   sizeFollowUp();
   setAnalysePhase('idle');
+  mountProviderKeyGuide({
+    el: $('provider-key-guide'),
+    getKeys: () => state.settings.apiKeys,
+    onKeyChange: (value, provider) => {
+      state.settings.apiKeys[provider] = value;
+      if (provider === 'openrouter') state.settings.apiKey = value;
+    },
+  });
   loadModels();
+  paintUsage();
   goInitial();
 }
 
