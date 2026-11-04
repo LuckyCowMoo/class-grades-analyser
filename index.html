@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=45">
+  <link rel="stylesheet" href="css/style.css?v=49">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -171,7 +171,26 @@
               <button type="button" class="pill" id="paste-save">Save this reply</button>
             </div>
           </div>
+          <div class="field">
+            <label for="system-prompt">System prompt. You can edit this before it is sent.</label>
+            <textarea id="system-prompt" class="payload-edit" rows="16" spellcheck="true"></textarea>
+          </div>
+          <p class="prompt-sub">User message and class data (not edited here)</p>
           <pre class="payload" id="payload-preview"></pre>
+        </details>
+        <details class="drawer">
+          <summary>What to include in the report</summary>
+          <p>Tick the sections the model should write. Changing the ticks rewrites the system prompt above. You can then edit the wording in Exact message.</p>
+          <p class="prompt-picks-label">In the current prompt</p>
+          <div class="prompt-list" id="prompt-core"></div>
+          <p class="prompt-picks-label">Extra sections you can add</p>
+          <div class="prompt-list" id="prompt-extra"></div>
+          <div class="field">
+            <label for="prompt-other">Other (optional)</label>
+            <p>Write a heading and what the teacher should get. A point looks like this:</p>
+            <pre class="prompt-example" id="prompt-other-example"></pre>
+            <textarea id="prompt-other" rows="6" placeholder="## Spare-time lesson"></textarea>
+          </div>
         </details>
         <p class="guard" id="guard-banner" hidden></p>
         <div class="actions">
@@ -190,7 +209,15 @@
           <article class="report" id="report" hidden></article>
           <div id="think-wrap" hidden>
             <p>The model is thinking. This is a live extract of that work.</p>
-            <div class="think-reel" id="think-reel" aria-live="polite"></div>
+            <div class="think-body">
+              <div class="think-reel" id="think-reel" aria-live="polite"></div>
+              <aside class="think-stats" aria-live="polite">
+                <p>model has thought for</p>
+                <b id="think-time">0s</b>
+                <p>model has generated</p>
+                <b id="think-words">0 words</b>
+              </aside>
+            </div>
           </div>
           <div class="composer-inline" id="composer" hidden>
             <div class="composer-bar">
@@ -240,6 +267,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=42"></script>
+  <script type="module" src="js/app.js?v=45"></script>
 </body>
 </html>

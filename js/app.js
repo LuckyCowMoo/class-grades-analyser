@@ -3,9 +3,9 @@ import { extractPdfStructure } from './pdf-extract.js';
 import { parseReport, classifyValue } from './parse-report.js';
 import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=2';
 import { fetchModels, rankFreeReasoningModels, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID } from './ai-client.js?v=4';
-import { buildOutgoing } from './prompt.js?v=3';
+import { buildOutgoing, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=4';
 import { renderMarkdown, escapeHtml } from './markdown.js';
-import { attachReportStream } from './report-stream.js';
+import { attachReportStream } from './report-stream.js?v=2';
 
 window.__appBooted = true;
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.js', import.meta.url).toString();
@@ -36,9 +36,51 @@ const state = {
   templateTopics: [],
   screen: 'home',
   analysePhase: 'idle',
+  systemPromptTouched: false,
 };
 
 let transitioning = false;
+let thinkTimer = { start: 0, raf: 0, words: 0 };
+
+function countThinkWords(text) {
+  const t = String(text || '').trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+
+function formatThinkTime(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function paintThinkStats() {
+  const timeEl = $('think-time');
+  const wordEl = $('think-words');
+  if (!timeEl || !wordEl) return;
+  const ms = thinkTimer.start ? performance.now() - thinkTimer.start : 0;
+  timeEl.textContent = formatThinkTime(ms);
+  const n = thinkTimer.words;
+  wordEl.textContent = `${n} word${n === 1 ? '' : 's'}`;
+}
+
+function tickThinkStats() {
+  paintThinkStats();
+  if (state.analysePhase === 'thinking') thinkTimer.raf = requestAnimationFrame(tickThinkStats);
+}
+
+function startThinkStats() {
+  if (thinkTimer.raf) cancelAnimationFrame(thinkTimer.raf);
+  thinkTimer.start = performance.now();
+  thinkTimer.words = 0;
+  paintThinkStats();
+  thinkTimer.raf = requestAnimationFrame(tickThinkStats);
+}
+
+function stopThinkStats() {
+  if (thinkTimer.raf) cancelAnimationFrame(thinkTimer.raf);
+  thinkTimer.raf = 0;
+}
 
 function currentKey() { return (state.settings.apiKey || state.sessionKey || '').trim(); }
 function isOpenRouter() { return state.settings.provider !== 'custom'; }
@@ -617,6 +659,27 @@ function refreshPayload() {
   payloadTimer = setTimeout(doRefreshPayload, 80);
 }
 
+function promptChoices() {
+  return {
+    sectionIds: [...document.querySelectorAll('[data-prompt-sec]:checked')].map((el) => el.dataset.promptSec),
+    extraIds: [...document.querySelectorAll('[data-prompt-extra]:checked')].map((el) => el.dataset.promptExtra),
+    otherText: $('prompt-other') ? $('prompt-other').value : '',
+  };
+}
+
+function fillPromptPicker() {
+  const core = $('prompt-core');
+  const extra = $('prompt-extra');
+  if (core) {
+    core.innerHTML = CORE_SECTIONS.map((s) => `<label><input type="checkbox" data-prompt-sec="${escapeHtml(s.id)}"${s.defaultOn ? ' checked' : ''}> ${escapeHtml(s.label)}</label>`).join('');
+  }
+  if (extra) {
+    extra.innerHTML = EXTRA_SECTIONS.map((s) => `<label><input type="checkbox" data-prompt-extra="${escapeHtml(s.id)}"> ${escapeHtml(s.label)}</label>`).join('');
+  }
+  const ex = $('prompt-other-example');
+  if (ex) ex.textContent = OTHER_EXAMPLE;
+}
+
 function doRefreshPayload() {
   const ds = state.dataset;
   if (!ds) return;
@@ -628,16 +691,29 @@ function doRefreshPayload() {
   };
   state.payload = buildPayload(ds, context);
   const activeMeasures = ds.measures.filter((m) => !m.excluded);
-  state.outgoing = buildOutgoing({
+  const picks = promptChoices();
+  const otherText = ds.scrub(picks.otherText, null, 'prompt note');
+  const built = buildOutgoing({
     payload: state.payload,
     subject: context.subject,
     hasTargets: activeMeasures.some((m) => m.flags.includes('target')),
     hasEffort: activeMeasures.some((m) => m.flags.includes('effort') || /atl|homework|classwork|handwriting/i.test(m.name)),
     rowsAreSubjects: ds.pupils.some((p) => p.rowsAreSubjects),
+    sectionIds: picks.sectionIds,
+    extraIds: picks.extraIds,
+    otherText,
   });
+  const ta = $('system-prompt');
+  if (ta && !state.systemPromptTouched) ta.value = built.system;
+  const system = (ta && ta.value.trim()) ? ta.value : built.system;
+  state.outgoing = {
+    system,
+    user: built.user,
+    combined: `SYSTEM PROMPT\n\n${system}\n\n==========\n\nUSER MESSAGE\n\n${built.user}`,
+  };
   state.guard = guardPayload(state.outgoing.combined, ds);
   const pre = $('payload-preview');
-  if (drawerIsOpen(pre)) pre.textContent = state.outgoing.combined;
+  if (drawerIsOpen(pre)) pre.textContent = state.outgoing.user;
   else pre.textContent = '';
   renderGuard();
 }
@@ -746,6 +822,7 @@ async function updateModelCard() {
 }
 
 function setAnalysePhase(phase) {
+  const prev = state.analysePhase;
   state.analysePhase = phase;
   const hasReport = !!(state.result && state.result.markdown);
   $('go-stage').hidden = phase !== 'idle';
@@ -758,6 +835,8 @@ function setAnalysePhase(phase) {
   $('run-wrap').hidden = phase !== 'thinking' && phase !== 'streaming';
   $('done-wrap').hidden = phase !== 'done' && phase !== 'error';
   $('composer').hidden = phase !== 'done';
+  if (phase === 'thinking' && prev !== 'thinking') startThinkStats();
+  if (phase !== 'thinking') stopThinkStats();
   if (phase === 'done') {
     fillCodeGrid();
     sizeFollowUp();
@@ -790,6 +869,8 @@ function showAnalysisError(err) {
 }
 
 function updateThinkReel(text) {
+  thinkTimer.words = countThinkWords(text);
+  paintThinkStats();
   const reel = $('think-reel');
   const lines = String(text || '').split(/\n+/).map((s) => s.trim()).filter(Boolean);
   const have = reel.querySelectorAll('.think-line').length;
@@ -1300,6 +1381,14 @@ function resetClass() {
   $('year-group').value = '';
   $('subject').value = '';
   $('extra-context').value = '';
+  state.systemPromptTouched = false;
+  if ($('prompt-other')) $('prompt-other').value = '';
+  document.querySelectorAll('[data-prompt-sec]').forEach((el) => {
+    const spec = CORE_SECTIONS.find((s) => s.id === el.dataset.promptSec);
+    el.checked = !spec || spec.defaultOn;
+  });
+  document.querySelectorAll('[data-prompt-extra]').forEach((el) => { el.checked = false; });
+  if ($('system-prompt')) $('system-prompt').value = '';
 }
 
 function init() {
@@ -1307,6 +1396,7 @@ function init() {
   wireChrome();
   wireSettings();
   wireUpload();
+  fillPromptPicker();
   ['subject', 'year-group', 'extra-context'].forEach((id) => $(id).addEventListener('input', refreshPayload));
   $('empty-assessment').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) loadTemplate(f); });
   $('grade-table').closest('details').addEventListener('toggle', () => fillGradeTable());
@@ -1315,9 +1405,13 @@ function init() {
   });
   $('payload-preview').closest('details').addEventListener('toggle', () => {
     const pre = $('payload-preview');
-    if (pre.closest('details').open && state.outgoing) pre.textContent = state.outgoing.combined;
+    if (pre.closest('details').open && state.outgoing) pre.textContent = state.outgoing.user;
     else pre.textContent = '';
   });
+  $('prompt-core').addEventListener('change', () => { state.systemPromptTouched = false; refreshPayload(); });
+  $('prompt-extra').addEventListener('change', () => { state.systemPromptTouched = false; refreshPayload(); });
+  $('prompt-other').addEventListener('input', () => { state.systemPromptTouched = false; refreshPayload(); });
+  $('system-prompt').addEventListener('input', () => { state.systemPromptTouched = true; refreshPayload(); });
   $('jump-payload').addEventListener('click', () => {
     const pre = $('payload-preview');
     const idx = pre.textContent.indexOf('--- DATA START ---');

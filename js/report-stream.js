@@ -1,4 +1,13 @@
-const PLACEHOLDER = '<div class="table-gen" role="status"><div class="table-gen-shine" aria-hidden="true"></div><span class="table-gen-label">Generating table</span></div>';
+const PLACEHOLDER = `<div class="table-gen" role="status">
+  <div class="table-gen-shine" aria-hidden="true"></div>
+  <span class="table-gen-label">Generating table</span>
+  <aside class="table-gen-stats">
+    <p>model has thought for</p>
+    <b class="table-gen-time">0s</b>
+    <p>model has generated</p>
+    <b class="table-gen-words">0 words</b>
+  </aside>
+</div>`;
 
 function isTableLine(line) {
   return /^\s*\|.*\|\s*$/.test(line);
@@ -74,22 +83,22 @@ function takeCompleteWords(s) {
 
 export function splitStreamMarkdown(md, done = false) {
   const text = String(md || '').replace(/\r\n?/g, '\n');
-  if (!text) return { ready: '', holdingTable: false };
-  if (done) return { ready: text, holdingTable: false };
+  if (!text) return { ready: '', holdingTable: false, heldText: '', holdAt: -1 };
+  if (done) return { ready: text, holdingTable: false, heldText: '', holdAt: -1 };
 
   const holdAt = findOpenTableStart(text);
-  if (holdAt >= 0) return { ready: text.slice(0, holdAt), holdingTable: true };
+  if (holdAt >= 0) return { ready: text.slice(0, holdAt), holdingTable: true, heldText: text.slice(holdAt), holdAt };
 
   if (!text.endsWith('\n')) {
     const nl = text.lastIndexOf('\n');
     const head = nl >= 0 ? text.slice(0, nl + 1) : '';
     const tail = nl >= 0 ? text.slice(nl + 1) : text;
     if (looksLikeTableRowStart(tail) || looksLikeSepStart(tail)) {
-      return { ready: head, holdingTable: looksLikeTableRowStart(tail) };
+      return { ready: head, holdingTable: looksLikeTableRowStart(tail), heldText: tail, holdAt: head.length };
     }
-    return { ready: head + takeCompleteWords(tail), holdingTable: false };
+    return { ready: head + takeCompleteWords(tail), holdingTable: false, heldText: '', holdAt: -1 };
   }
-  return { ready: text, holdingTable: false };
+  return { ready: text, holdingTable: false, heldText: '', holdAt: -1 };
 }
 
 function wrapWords(root) {
@@ -164,6 +173,57 @@ export function attachReportStream({ mount, toHtml }) {
   let waiting = null;
   let lastPush = 0;
   let resolveDone = null;
+  let tableHold = { start: 0, raf: 0, at: -1 };
+
+  function countWords(text) {
+    const t = String(text || '').trim();
+    return t ? t.split(/\s+/).length : 0;
+  }
+
+  function formatHoldTime(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function paintTableStats(gen, heldText) {
+    if (!gen) return;
+    const timeEl = gen.querySelector('.table-gen-time');
+    const wordEl = gen.querySelector('.table-gen-words');
+    if (!timeEl || !wordEl) return;
+    timeEl.textContent = formatHoldTime(tableHold.start ? performance.now() - tableHold.start : 0);
+    const n = countWords(heldText);
+    wordEl.textContent = `${n} word${n === 1 ? '' : 's'}`;
+  }
+
+  function stopTableStats() {
+    if (tableHold.raf) cancelAnimationFrame(tableHold.raf);
+    tableHold.raf = 0;
+    tableHold.at = -1;
+    tableHold.start = 0;
+  }
+
+  function tickTableStats() {
+    const { holdingTable, heldText } = split();
+    if (!holdingTable) {
+      tableHold.raf = 0;
+      return;
+    }
+    const gen = el().querySelector('.table-gen.is-live');
+    if (gen) paintTableStats(gen, heldText);
+    tableHold.raf = requestAnimationFrame(tickTableStats);
+  }
+
+  function startTableStats(holdAt, heldText) {
+    if (tableHold.at !== holdAt) {
+      tableHold.at = holdAt;
+      tableHold.start = performance.now();
+    }
+    const gen = el().querySelector('.table-gen.is-live');
+    paintTableStats(gen, heldText);
+    if (!tableHold.raf) tableHold.raf = requestAnimationFrame(tickTableStats);
+  }
 
   function el() {
     return typeof mount === 'function' ? mount() : mount;
@@ -241,8 +301,11 @@ export function attachReportStream({ mount, toHtml }) {
 
   function syncPlaceholder(holdingTable = split().holdingTable) {
     const root = el();
+    const { heldText, holdAt } = split();
     const live = holdingTable && shown >= items.length;
     let gen = root.querySelector('.table-gen');
+    if (holdingTable) startTableStats(holdAt, heldText);
+    else stopTableStats();
     if (!live) {
       if (gen) gen.classList.remove('is-live');
       return;
@@ -254,6 +317,7 @@ export function attachReportStream({ mount, toHtml }) {
       root.appendChild(gen);
     }
     gen.classList.add('is-live');
+    startTableStats(holdAt, heldText);
   }
 
   function placeCursor() {
@@ -351,6 +415,7 @@ export function attachReportStream({ mount, toHtml }) {
   }
 
   function reset({ seed = '' } = {}) {
+    stopTableStats();
     if (waiting) clearTimeout(waiting);
     waiting = null;
     received = seed;
@@ -393,6 +458,7 @@ export function attachReportStream({ mount, toHtml }) {
 
   function stop() {
     done = true;
+    stopTableStats();
     if (waiting) clearTimeout(waiting);
     waiting = null;
     resolveDone = null;
