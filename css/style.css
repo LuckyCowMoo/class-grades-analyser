@@ -168,7 +168,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--white);
   font-family: var(--display);
   font-size: 1em;
-  line-height: 1.02;
+  line-height: 1.42;
   letter-spacing: 0.02em;
 }
 .ctk-letter {
@@ -177,6 +177,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   white-space: nowrap;
   cursor: default;
   outline: none;
+  margin-bottom: -0.4em;
+}
+.ctk-letter:last-child {
+  margin-bottom: 0;
 }
 .ctk-letter b {
   font-weight: 400;
@@ -559,7 +563,13 @@ input[type="text"], input[type="password"], input[type="url"], select, textarea 
   clip-path: polygon(0 0, 100% 0, 100% 82%, 96% 100%, 0 100%);
 }
 textarea { min-height: 90px; resize: vertical; }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: none;
+}
 
 .drawer { margin: 10px 0; }
 .drawer summary {
@@ -715,9 +725,10 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 0;
+  min-height: 42vh;
   height: 100%;
   overflow: hidden;
+  margin-top: 18px;
 }
 .think-reel {
   flex: 1;
@@ -840,7 +851,7 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
 }
 .composer-bar {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
 }
 .composer-bar textarea {
@@ -856,8 +867,9 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
   background: var(--navy);
   color: var(--white);
   padding: 20px 28px;
-  line-height: 1.25;
-  overflow: auto;
+  line-height: 1.35;
+  overflow: hidden;
+  text-align: center;
 }
 .composer-bar textarea::placeholder {
   color: color-mix(in srgb, var(--white) 70%, transparent);
@@ -869,9 +881,11 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
 .send-orb {
   flex: 0 0 104px;
   width: 104px;
-  height: 104px;
+  min-height: 104px;
+  height: auto;
+  align-self: stretch;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   background: rgb(203, 45, 62);
   color: var(--cream);
   cursor: pointer;
@@ -968,8 +982,6 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
   white-space: pre-wrap;
   color: var(--cream);
 }
-#key-status { font-weight: 700; }
-
 /* ---------- FX overlay ---------- */
 .fx {
   position: fixed; inset: 0; z-index: 40; pointer-events: none;

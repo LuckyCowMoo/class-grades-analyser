@@ -296,19 +296,11 @@ function loadSettings() {
   } catch { /* ignore */ }
   $('api-key').value = state.settings.apiKey || '';
   if (state.settings.referer) $('referer').value = state.settings.referer;
-  updateKeyStatus();
 }
 
 function saveSettings() {
   const s = state.settings;
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKey: s.rememberKey ? s.apiKey : '' })); } catch { /* ignore */ }
-}
-
-function updateKeyStatus() {
-  const pill = $('key-status');
-  const key = currentKey();
-  if (!key) { pill.hidden = true; pill.textContent = ''; }
-  else { pill.hidden = false; pill.textContent = 'A key is saved on this computer.'; }
 }
 
 function setMessage(id, text, kind = '') {
@@ -364,7 +356,6 @@ function wireSettings() {
     state.settings.referer = $('referer').value.trim();
     state.sessionKey = '';
     saveSettings();
-    updateKeyStatus();
     if (key) goTo('home');
     loadModels();
   });
@@ -756,9 +747,10 @@ async function updateModelCard() {
 
 function setAnalysePhase(phase) {
   state.analysePhase = phase;
+  const hasReport = !!(state.result && state.result.markdown);
   $('go-stage').hidden = phase !== 'idle';
   $('think-wrap').hidden = phase !== 'thinking';
-  $('report').hidden = phase === 'thinking' || (phase === 'idle' && !state.result);
+  $('report').hidden = !hasReport && (phase === 'idle' || phase === 'thinking');
   $('extra-wrap').hidden = phase !== 'idle';
   $('model-pick-wrap').hidden = phase !== 'idle';
   $('go-wrap').hidden = phase !== 'idle' && phase !== 'error';
@@ -766,7 +758,10 @@ function setAnalysePhase(phase) {
   $('run-wrap').hidden = phase !== 'thinking' && phase !== 'streaming';
   $('done-wrap').hidden = phase !== 'done' && phase !== 'error';
   $('composer').hidden = phase !== 'done';
-  if (phase === 'done') fillCodeGrid();
+  if (phase === 'done') {
+    fillCodeGrid();
+    sizeFollowUp();
+  }
 }
 
 function addThinkLine(text) {
@@ -881,6 +876,7 @@ async function runAnalysis({ followUp = false } = {}) {
   reportStream.reset({ seed: prior ? `${prior}\n\n---\n\n` : '' });
   $('think-reel').innerHTML = '';
   setAnalysePhase('thinking');
+  if (followUp) $('think-wrap').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   $('run-status').textContent = 'Starting…';
   addThinkLine('Contacting OpenRouter…');
   let sawAnswer = false;
@@ -1233,12 +1229,35 @@ function fillCodeGrid() {
   pop.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => insertAtCursor(b.dataset.code)));
 }
 
+function sizeFollowUp() {
+  const el = $('followup');
+  if (!el) return;
+  const minH = 104;
+  const maxH = Math.round(Math.min(window.innerHeight * 0.5, 480));
+  const padX = 28;
+  const padY = 20;
+  el.style.overflowY = 'hidden';
+  el.style.minHeight = '0px';
+  el.style.height = '0px';
+  el.style.padding = `0 ${padX}px`;
+  const textH = el.scrollHeight;
+  const inner = textH + padY * 2;
+  const h = Math.min(maxH, Math.max(minH, inner));
+  const extra = Math.max(0, h - inner);
+  el.style.minHeight = `${minH}px`;
+  el.style.paddingTop = `${padY + extra / 2}px`;
+  el.style.paddingBottom = `${padY + extra / 2}px`;
+  el.style.height = `${h}px`;
+  el.style.overflowY = inner > maxH ? 'auto' : 'hidden';
+}
+
 function insertAtCursor(text) {
   const el = $('followup');
   const start = el.selectionStart || el.value.length;
   el.value = `${el.value.slice(0, start)}${text}${el.value.slice(el.selectionEnd || start)}`;
   el.focus();
   el.selectionStart = el.selectionEnd = start + text.length;
+  sizeFollowUp();
 }
 
 async function sendFollowUp() {
@@ -1249,6 +1268,7 @@ async function sendFollowUp() {
   const g = guardPayload(text, state.dataset);
   if (!g.ok) { $('run-status').textContent = 'That follow-up still looks identifying. Use codes, not names.'; return; }
   $('followup').value = '';
+  sizeFollowUp();
   state.messages.push({ role: 'user', content: text });
   await runAnalysis({ followUp: true });
 }
@@ -1322,12 +1342,15 @@ function init() {
     catch { $('run-status').textContent = 'Copy failed.'; }
   });
   $('send-followup').addEventListener('click', sendFollowUp);
+  $('followup').addEventListener('input', sizeFollowUp);
+  window.addEventListener('resize', sizeFollowUp);
   $('followup').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendFollowUp();
     }
   });
+  sizeFollowUp();
   setAnalysePhase('idle');
   loadModels();
   goInitial();

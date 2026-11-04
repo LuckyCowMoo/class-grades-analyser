@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=40">
+  <link rel="stylesheet" href="css/style.css?v=45">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -57,9 +57,9 @@
         <div class="back-disc" aria-hidden="true"></div>
         <div class="slash-deco"></div>
         <h1>Put your OpenRouter key on this computer.</h1>
-        <p>You need a free <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">OpenRouter</a> account. This page picks the best free reasoning model for you automatically.</p>
-        <p>Go to <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">openrouter.ai</a> and sign up with Google or email. Open <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Settings, then Keys</a>, and create a key. Give it a name such as Class analyser. Copy the key (it starts with sk-or-) and paste it below. You only need to do this once per computer.</p>
-        <p>The key stays in this browser. It is not copied to GitHub. After it is saved you will not be asked for it again on this machine. Free models have daily limits. If you hit them, OpenRouter will tell you; waiting until the next day, or adding a small one-off credit, raises the free limit.</p>
+        <p>You need a free <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">OpenRouter</a> account. openrouter is a service that connects AI models to websites like this one. This page picks the best AI model for you automatically from the ones that are curently avalable, free, and reasonably fast at responding.</p>
+        <p>Go to <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer">openrouter.ai</a> and sign in, you can do this with your school google account. Open <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Settings, then Keys</a>, then click Create a new key. Give it a name such as Class analyser. Copy the key (it starts with sk-or-) and paste it below. this is the key that this website will send to OpenRouter in order to identify you. You only need to do this once.</p>
+        <p>Openrouter has both free and paid models, the free modles are curently of comparible intelligence to the ones avalable through the free plans for chat GPT or Google Gemini, although they will respond slower.</p>
         <div class="field">
           <label for="api-key">OpenRouter API key</label>
           <div class="field-key">
@@ -74,7 +74,6 @@
         <div class="actions">
           <button type="button" class="pill" id="save-key">Save and go on</button>
         </div>
-        <p class="notice" id="key-status" hidden></p>
       </div>
     </section>
 
@@ -84,9 +83,9 @@
         <div class="back-disc" aria-hidden="true"></div>
         <div class="help-copy">
           <h1>How to use this</h1>
-          <p>Press the red circle on the first page and choose the zip of Pupil Progress PDFs for one class, or drop the folder onto that page. This page reads every file on your computer. Names, Unique Pupil Numbers and dates of birth never leave the machine.</p>
-          <p>Check the table. Add a blank assessment PDF if you want the model to know about a paper the class has not sat yet. Read the outgoing message, then press Go. A free reasoning model on OpenRouter writes the report. Codes such as P07 are swapped back to names only on this computer.</p>
-          <p>You can ask a follow-up about one pupil after the first answer. Past reports stay in this browser until you delete them.</p>
+          <p>download the pupil progress reports for the class by going to the screen where you select a class to view, press the 3 dots and chppse download, then follow the emails you revece from pupil progress, it may take some muinites to arive</p>
+          <p>Press the select folder button on the first page and choose the zipped folder of Pupil Progress as it was downloaded. This page reads each report and reconstructs the class spreadhseet from each pupil's file, once it is finished it wll automaticaly take you to the next page, you can optionaly include a blank coppy of any asessment this class has sat, in order to give the AI more information about what those papers were about</p>
+          <p>press go, this website will find the best free and avalable AI to analyse it, you will see the model's internal thinking as it analyses the data, then it will write a report for the class.</p>
         </div>
       </div>
     </section>
@@ -97,10 +96,10 @@
         <div class="back-disc" aria-hidden="true"></div>
         <h1>Why this is safe</h1>
         <div class="safety-copy">
-          <p>This website never sends a pupil’s name to an AI. The reports are read on your computer, in this browser, and every name, Unique Pupil Number, date of birth and contact detail is taken out before anything leaves the machine.</p>
-          <p>What the model receives is a table of random codes such as P07, together with grades and topic names. The school’s name, the teacher’s name and the class code are left out as well, because they are not needed for the analysis.</p>
-          <p>The code-to-name key stays in this browser. When the model answers, this page swaps the codes back to names on your computer so you can see who needs help. You can read the exact outgoing message on the check page before you press Go. If a name or a Unique Pupil Number is still in that text, the page will refuse to send it.</p>
-          <p>Nothing is uploaded to a school server or to GitHub. The only network call for the analysis is to the AI provider you have chosen, using the key stored on this computer.</p>
+          <p>This website never sends a pupil’s name or identifyable information to an AI. this website uses your own computer to read the reports conventially, it stips the data of any identifyable information: every name (including the techer's), Unique Pupil Number, date of birth and contact detail is taken out before anything leaves the machine.</p>
+          <p>What the model receives is a table of random codes such as P07, together with grades and topic names and year group, this website is a method of sending this tool to your computer easily, without needing to install anything on your device, it is a web app that runs in your browser, no information ever leaves. i made this website personaly, and can confirm that it not a security risk itself.</p>
+          <p>The code to name key stays on your computer. When the model answers, this page swaps the codes back to names on your computer so you can read the report without needing to constantly check. You can read the exact outgoing message in full on the page before you press Go. If a name or a Unique Pupil Number is still in that text, the page will refuse to send it.</p>
+          <p>other services like google docs will save responses to the cloud, making them accessible if you use more than one computer, this tool does not do this, no information ever leaves this computer under any circumstances, past reports will be saved on this computer only, if you delete one it will be immediately gone forever</p>
         </div>
       </div>
     </section>
@@ -111,10 +110,10 @@
         <div class="back-disc" aria-hidden="true"></div>
         <h1>If this page breaks later</h1>
         <div class="safety-copy">
-          <p>This website should not need constant attention. It is meant to keep working on its own, on the teacher’s computer, without anyone having to look after it day to day.</p>
-          <p>At some point OpenRouter or Pupil Progress will likely change the format of something in a way that breaks this website. That is a normal risk with a tool that reads someone else’s PDFs and talks to someone else’s AI.</p>
-          <p>If that happens after the training placement at Christ the King has ended, you can contact me on my personal email, <a href="mailto:lukeatthecafe@gmail.com">lukeatthecafe@gmail.com</a>. You also have my full permission to do what you want with this website, including changing it, hosting it, or replacing it.</p>
-          <p>The source is on <a href="https://github.com/LuckyCowMoo/class-grades-analyser" target="_blank" rel="noopener noreferrer">GitHub</a>. The licence for that project says that the work is completely owned by Christ the King Catholic High School and Sixth Form Centre. Read the <a href="LICENSE">licence</a> if you want the legal wording.</p>
+          <p>This website should be self sufficient for a reasonable amount of time. It is meant to keep working on its own, on the teacher’s computer, without anyone having to look after it day to day.</p>
+          <p>At some point OpenRouter or Pupil Progress will inevitablly change the format of something in a way that breaks this website. That is a normal risk with a tool that takes input from someone else’s PDFs and talks to someone else’s AI for whitch we hav no control over.</p>
+          <p>If that happens after my training placement at Christ the King has ended, you can contact me on my personal email, <a href="mailto:lukeatthecafe@gmail.com">lukeatthecafe@gmail.com</a>. You also have my full permission to do what you want with this website, including changing it, hosting it, or replacing it.</p>
+          <p>The source is on my personal <a href="https://github.com/LuckyCowMoo/class-grades-analyser" target="_blank" rel="noopener noreferrer">GitHub</a> page and is hosted tere as well, however the licence for the project says that the work is completely owned by Christ the King Catholic High School and Sixth Form Centre. Read the <a href="https://github.com/LuckyCowMoo/class-grades-analyser/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">licence</a> if you want the legal wording.</p>
         </div>
       </div>
     </section>
@@ -124,7 +123,7 @@
         <button type="button" class="back-orb" data-go="home" aria-label="Back"><span>Back</span></button>
         <div class="back-disc" aria-hidden="true"></div>
         <h1>Past reports on this computer</h1>
-        <p>These stay in this browser. They are not stored on GitHub.</p>
+        <p>These stay in this browser. if you want to use them outside of this website, open them and export with the print button.</p>
         <div class="report-list" id="report-list"></div>
       </div>
     </section>
@@ -159,11 +158,11 @@
         </details>
         <details class="drawer">
           <summary>Exact message that will leave this computer</summary>
-          <p class="row">
+          <div class="row">
             <button type="button" class="pill ghost" id="jump-payload">Jump to the data block</button>
             <button type="button" class="pill ghost" id="copy-prompt">Copy as prompt.txt</button>
-            <button type="button" class="pill js-paste-reply">Use clipboard</button>
-          </p>
+            <button type="button" class="pill ghost js-paste-reply">Use clipboard</button>
+          </div>
           <p class="notice" id="paste-status" hidden></p>
           <div class="field" id="paste-box" hidden>
             <label for="paste-text">Paste the reply here</label>
@@ -188,11 +187,11 @@
             <div class="go-disc" aria-hidden="true"></div>
             <button type="button" class="go-orb" id="go" aria-label="Go"><span>Go</span></button>
           </div>
+          <article class="report" id="report" hidden></article>
           <div id="think-wrap" hidden>
             <p>The model is thinking. This is a live extract of that work.</p>
             <div class="think-reel" id="think-reel" aria-live="polite"></div>
           </div>
-          <article class="report" id="report" hidden></article>
           <div class="composer-inline" id="composer" hidden>
             <div class="composer-bar">
               <label class="sr-only" for="followup">Ask a follow-up. The same privacy rules apply.</label>
@@ -241,6 +240,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=38"></script>
+  <script type="module" src="js/app.js?v=42"></script>
 </body>
 </html>
