@@ -1,7 +1,7 @@
 import * as pdfjsLib from '../vendor/pdf.min.js';
 import { extractPdfStructure } from './pdf-extract.js';
 import { parseReport, classifyValue } from './parse-report.js';
-import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=2';
+import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=3';
 import { listModelsForProvider, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID, estimateTextTokens, reportCostFromRates, reportUsageEstimate, looksReasoningModel, usageCost, usageSplit, formatGbp, USD_TO_GBP } from './ai-client.js?v=13';
 import { buildOutgoing, parseOutgoingCombined, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=5';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -41,6 +41,8 @@ const state = {
   outgoingTouched: false,
   usage: emptyUsage(),
   reportId: null,
+  nameScanConfirmed: null,
+  nameScanPending: null,
 };
 
 let transitioning = false;
@@ -294,6 +296,7 @@ function showScreen(name) {
   if (name === 'analyse') {
     updateModelCard();
     paintUsage();
+    renderGuard();
   }
 }
 
@@ -916,20 +919,69 @@ function doRefreshPayload() {
   relabelModelOptions();
 }
 
-function renderGuard() {
-  const box = $('guard-banner');
-  const g = state.guard; const ds = state.dataset;
-  if (!g || !ds) { box.textContent = ''; box.hidden = true; return; }
-  const blocks = g.findings.filter((f) => f.severity === 'block');
-  if (blocks.length) {
-    box.hidden = false;
-    box.className = 'guard bad';
-    box.innerHTML = `<strong>This will not be sent.</strong> Something identifying is still in the message: ${blocks.slice(0, 8).map((f) => `${escapeHtml(f.type)} (${escapeHtml(f.match)})`).join('; ')}.`;
-  } else {
-    box.className = 'guard';
-    box.textContent = '';
-    box.hidden = true;
+function possibleNameHits(g) {
+  const hits = [];
+  const seen = new Set();
+  for (const f of (g && g.findings) || []) {
+    if (f.type !== 'possible name') continue;
+    const key = String(f.match || '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push(f.match);
   }
+  return hits;
+}
+
+function identBlockHtml(blocks) {
+  return `<strong>This will not be sent.</strong> Something identifying is still in the message: ${blocks.slice(0, 8).map((f) => `${escapeHtml(f.type)} (${escapeHtml(f.match)})`).join('; ')}.`;
+}
+
+function nameWarningHtml(names, { allowSend = false } = {}) {
+  const chips = names.map((n) => `<b class="name-hit">${escapeHtml(n)}</b>`).join(', ');
+  const next = allowSend
+    ? `<p>If it is only a topic name, you can send anyway.</p><button type="button" class="pill name-anyway">Send anyway</button>`
+    : `<p>If that is a person, edit the exact message. If it is only a topic name, continue and confirm on the next page.</p>`;
+  return `<strong>Stop — this still looks like it has a person’s name in it.</strong>
+    <p>The scan found: ${chips}.</p>
+    <p>If that is a pupil, a teacher, or anyone at the school, take it out of the message. Do not send it. Ordinary English words that are also names (such as Rose, May or Mark) are ignored.</p>
+    ${next}`;
+}
+
+function fillGuardBox(el, blocks, names, allowSend) {
+  if (!el) return;
+  if (blocks.length) {
+    el.hidden = false;
+    el.className = el.classList.contains('name-banner') ? 'guard name-banner bad' : 'guard bad';
+    el.innerHTML = identBlockHtml(blocks);
+  } else if (names.length) {
+    el.hidden = false;
+    el.className = el.classList.contains('name-banner') ? 'guard name-banner names' : 'guard names';
+    el.innerHTML = nameWarningHtml(names, { allowSend });
+  } else {
+    el.className = el.classList.contains('name-banner') ? 'guard name-banner' : 'guard';
+    el.textContent = '';
+    el.hidden = true;
+  }
+}
+
+function renderGuard() {
+  const g = state.guard;
+  const blocks = g ? g.findings.filter((f) => f.severity === 'block') : [];
+  const names = possibleNameHits(g);
+  fillGuardBox($('guard-banner'), blocks, names, false);
+  document.querySelectorAll('.name-banner').forEach((el) => fillGuardBox(el, blocks, names, true));
+}
+
+function confirmNameScanAndSend() {
+  const pending = state.nameScanPending;
+  const text = (pending && pending.text)
+    || (state.outgoing && state.outgoing.combined)
+    || '';
+  state.nameScanConfirmed = text;
+  const followUp = !!(pending && pending.followUp);
+  state.nameScanPending = null;
+  if (followUp) sendFollowUp();
+  else runAnalysis();
 }
 
 async function loadTemplate(file) {
@@ -1215,6 +1267,17 @@ async function runAnalysis({ followUp = false } = {}) {
   }
   if (!state.guard || !state.guard.ok) {
     $('run-status').textContent = 'Blocked by the privacy check.';
+    renderGuard();
+    return;
+  }
+  const outgoing = (state.outgoing && state.outgoing.combined) || '';
+  const names = possibleNameHits(state.guard);
+  if (names.length && state.nameScanConfirmed !== outgoing) {
+    state.nameScanPending = { followUp: false, text: outgoing };
+    renderGuard();
+    $('run-status').textContent = 'Stopped: the message still looks like it contains names.';
+    const banner = document.querySelector('#screen-analyse .name-banner');
+    if (banner) banner.scrollIntoView({ block: 'nearest' });
     return;
   }
   if (!followUp) {
@@ -1719,6 +1782,14 @@ async function sendFollowUp() {
   text = state.dataset.scrub(text, null, 'follow-up');
   const g = guardPayload(text, state.dataset);
   if (!g.ok) { $('run-status').textContent = 'That follow-up still looks identifying. Use codes, not names.'; return; }
+  const names = possibleNameHits(g);
+  if (names.length && state.nameScanConfirmed !== text) {
+    state.guard = g;
+    state.nameScanPending = { followUp: true, text };
+    renderGuard();
+    $('run-status').textContent = 'Stopped: that follow-up still looks like it contains a name.';
+    return;
+  }
   $('followup').value = '';
   sizeFollowUp();
   state.messages.push({ role: 'user', content: text });
@@ -1747,6 +1818,8 @@ function resetClass() {
   state.messages = [];
   state.templateTopics = [];
   state.reportId = null;
+  state.nameScanConfirmed = null;
+  state.nameScanPending = null;
   resetUsage();
   setAnalysePhase('idle');
   reportStream.reset();
@@ -1796,6 +1869,9 @@ function init() {
   });
   $('paste-save').addEventListener('click', () => importPastedReply($('paste-text').value));
   $('go').addEventListener('click', () => runAnalysis());
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.name-anyway')) confirmNameScanAndSend();
+  });
   $('stop').addEventListener('click', () => { if (state.abort) state.abort.abort(); });
   $('provider-select').addEventListener('change', () => {
     state.settings.provider = $('provider-select').value;

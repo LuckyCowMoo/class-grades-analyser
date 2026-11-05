@@ -12,6 +12,7 @@
 //    allowed out ("belt and braces").
 
 import { classifyValue, matchLabel, measureFlags, PII_PATTERNS } from './parse-report.js';
+import { scanCommonNames } from './common-names.js';
 
 const CODE_PREFIXES = ['P', 'S', 'K', 'Q', 'Z', 'ID'];
 
@@ -543,6 +544,12 @@ export function guardPayload(payload, dataset) {
   for (const [severity, type, re] of patternChecks) {
     re.lastIndex = 0;
     let m; while ((m = re.exec(text))) add(severity, type, m[0], m.index);
+  }
+  const already = new Set(findings.map((f) => String(f.match || '').toLowerCase()));
+  for (const hit of scanCommonNames(text)) {
+    if (already.has(hit.key) || already.has(String(hit.match).toLowerCase())) continue;
+    add('warn', 'possible name', hit.match, hit.index);
+    already.add(hit.key);
   }
   const blocked = findings.some((f) => f.severity === 'block');
   return { ok: !blocked, findings };

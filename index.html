@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=59">
+  <link rel="stylesheet" href="css/style.css?v=60">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -178,7 +178,7 @@
             <textarea id="prompt-other" rows="6" placeholder="## Spare-time lesson"></textarea>
           </div>
         </details>
-        <p class="guard" id="guard-banner" hidden></p>
+        <div class="guard" id="guard-banner" hidden></div>
         <div class="actions">
           <button type="button" class="pill" id="to-analyse">Looks right, go on</button>
         </div>
@@ -188,6 +188,7 @@
     <section class="screen" id="screen-analyse" data-screen="analyse">
       <div class="analyse-grid">
         <div class="analyse-main" id="analyse-main">
+          <div class="guard name-banner" hidden></div>
           <div class="go-stage" id="go-stage">
             <div class="go-disc" aria-hidden="true"></div>
             <button type="button" class="go-orb" id="go" aria-label="Go"><span>Go</span></button>
@@ -205,6 +206,7 @@
               </aside>
             </div>
           </div>
+          <div class="guard name-banner" hidden></div>
           <div class="composer-inline" id="composer" hidden>
             <div class="composer-bar">
               <label class="sr-only" for="followup">Ask a follow-up. The same privacy rules apply.</label>
@@ -277,6 +279,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=65"></script>
+  <script type="module" src="js/app.js?v=66"></script>
 </body>
 </html>
