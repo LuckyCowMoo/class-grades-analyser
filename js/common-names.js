@@ -77,6 +77,17 @@ const ENGLISH_NAME_WORDS = bag(`
   design food sport pe re rs psce pshe citizenship computing ict
   january february september october november december
   paris india london china
+  pythagoras venn fibonacci newton hooke ohm joule watt volt ampere
+  darwin mendel mendelian curie rutherford bohr pasteur fleming
+  shakespeare macbeth romeo juliet jekyll hyde scrooge dickens priestley
+  edexcel aqa ocr eduqas wjec pearson cambridge sims arbor bromcom go4schools
+  algebra geometry trigonometry statistics probability fractions decimals
+  ratios percentages quadratics simultaneous equations vectors matrices
+  photosynthesis respiration circulation digestion osmosis diffusion
+  homeostasis genetics evolution ecology mitosis meiosis electrolysis
+  equilibrium kinetics thermodynamics electromagnetism radioactivity
+  glaciation tectonics migration urbanization Elizabethan Weimar Norman
+
 `);
 
 const GIVEN_NAMES = bag(`

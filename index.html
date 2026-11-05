@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://api.openai.com https://api.x.ai https://api.groq.com https://api.deepseek.com https://api.mistral.ai https://api.together.xyz https://api.together.ai https://api.fireworks.ai; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=64">
+  <link rel="stylesheet" href="css/style.css?v=70">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -42,6 +44,19 @@
         <span>Select<br><em>folder</em></span>
       </button>
       <p class="orb-progress" id="progress-label" hidden></p>
+      <button type="button" class="combine-open" id="combine-open" data-go="combine" aria-label="Combine classes">
+        <svg viewBox="0 0 480 480" aria-hidden="true">
+          <g class="combine-moon-shadow" transform="translate(11 13)">
+            <path d="M 90.23 196.35 A 128 128 0 1 0 246.12 395.88 A 156 156 0 0 1 90.23 196.35 Z"/>
+          </g>
+          <path class="combine-moon" d="M 90.23 196.35 A 128 128 0 1 0 246.12 395.88 A 156 156 0 0 1 90.23 196.35 Z"/>
+          <g class="combine-moon-label" transform="translate(84.76 361.29) rotate(52)">
+            <text text-anchor="middle" y="-6">Combine</text>
+            <text text-anchor="middle" y="28">classes</text>
+          </g>
+        </svg>
+        <span class="combine-moon-origin" aria-hidden="true"></span>
+      </button>
       <nav class="home-pills" aria-label="Home">
         <button type="button" class="pill" data-go="help">How to use this</button>
         <button type="button" class="pill" data-go="reports">Past reports</button>
@@ -84,10 +99,12 @@
         <div class="back-disc" aria-hidden="true"></div>
         <h1>Why this is safe</h1>
         <div class="safety-copy">
-          <p>This website never sends a pupil’s name or identifyable information to an AI. this website uses your own computer to read the reports conventially, it stips the data of any identifyable information: every name (including the techer's), Unique Pupil Number, date of birth and contact detail is taken out before anything leaves the machine.</p>
-          <p>What the model receives is a table of random codes such as P07, together with grades and topic names and year group, this website is a method of sending this tool to your computer easily, without needing to install anything on your device, it is a web app that runs in your browser, no information ever leaves. i made this website personaly, and can confirm that it not a security risk itself.</p>
-          <p>The code to name key stays on your computer. When the model answers, this page swaps the codes back to names on your computer so you can read the report without needing to constantly check. You can read the exact outgoing message in full on the page before you press Go. If a name or a Unique Pupil Number is still in that text, the page will refuse to send it.</p>
-          <p>other services like google docs will save responses to the cloud, making them accessible if you use more than one computer, this tool does not do this, no information ever leaves this computer under any circumstances, past reports will be saved on this computer only, if you delete one it will be immediately gone forever</p>
+          <p><strong>100% Client-Side Processing:</strong> This application runs entirely in memory within your web browser. Your pupil report PDFs are never uploaded to our server or any third-party storage. Everything is read and parsed locally on your device.</p>
+          <p><strong>Strict Multi-Layer Anonymisation:</strong> All identifying information is scrubbed before any message is built. Pupil full names, first names, surnames, teacher names, Unique Pupil Numbers (UPN), Unique Learner Numbers (ULN), dates of birth, candidate numbers, school names, emails, phone numbers, and postcodes are systematically extracted into a local private key and replaced with anonymous tokens (such as P01, P02).</p>
+          <p><strong>Strict Privacy Guard with Smart Name Review:</strong> Before any message leaves your device, automated security scans inspect the text. Any actual identifying student or staff details (pupil names from reports, teacher names, UPNs, dates of birth, contact details) are strictly blocked from leaving. If the scan spots a possible name that belongs to question text or curriculum material (such as <em>"Alice has 3 watermelons"</em> or an author name), it highlights the exact sentence and warns you, giving you the choice to review the context and send anyway using your professional judgement.</p>
+          <p><strong>Pre-Flight Network Interceptor:</strong> Directly before any network call can be made, a hard safety assertion runs at the browser's network fetch layer. If an identifying token is ever detected, execution is immediately aborted before any bytes can leave your computer.</p>
+          <p><strong>Restricted Network Boundaries (CSP):</strong> A strict Content Security Policy limits all external connections exclusively to authorized AI endpoints, with strict no-referrer privacy enabled.</p>
+          <p><strong>Local Key Isolation:</strong> The translation key linking pupil codes back to names remains strictly inside your local browser session. When the AI finishes its analysis, your browser locally restores the names on your screen so you can read the report without risk.</p>
         </div>
       </div>
     </section>
@@ -114,6 +131,37 @@
         <p>These stay in this browser. if you want to use them outside of this website, open them and export with the print button.</p>
         <div class="report-list" id="report-list"></div>
       </div>
+    </section>
+
+    <section class="screen" id="screen-combine" data-screen="combine">
+      <div class="combine-peach"></div>
+      <div class="combine-navy"></div>
+      <input id="combine-search" class="combine-search" type="search" placeholder="Search" autocomplete="off" aria-label="Search pupils">
+      <p class="combine-status" id="combine-status"></p>
+      <div class="combine-board" id="combine-board"></div>
+      <div class="combine-anchor">
+        <button type="button" class="back-orb combine-back" data-go="home" aria-label="Back">
+          <svg viewBox="50 8 270 236" aria-hidden="true">
+            <defs>
+              <path id="combine-back-text" d="M 56.19 181.15 A 193 193 0 0 1 280.94 51.39" fill="none"/>
+              <mask id="combine-back-shadow" maskUnits="userSpaceOnUse">
+                <rect x="0" y="0" width="480" height="480" fill="white"/>
+                <circle cx="240" cy="240" r="166" fill="black"/>
+              </mask>
+            </defs>
+            <g class="combine-moon-shadow" mask="url(#combine-back-shadow)" transform="translate(10 12)">
+              <path d="M 303.24 99.59 A 126 126 0 1 0 86.78 224.56 A 154 154 0 0 1 303.24 99.59 Z"/>
+            </g>
+            <path class="combine-moon" d="M 303.24 99.59 A 126 126 0 1 0 86.78 224.56 A 154 154 0 0 1 303.24 99.59 Z"/>
+            <text class="combine-moon-label"><textPath href="#combine-back-text" startOffset="50%" text-anchor="middle">Back</textPath></text>
+          </svg>
+        </button>
+        <div class="combine-start-disc" aria-hidden="true"></div>
+        <button type="button" class="combine-start" id="combine-start">
+          <span class="combine-start-copy"><b>Start</b><i><span id="combine-count">0</span> <span id="combine-count-word">pupils</span></i></span>
+        </button>
+      </div>
+      <input id="combine-file" class="sr-file" type="file" accept=".zip,.pdf,application/zip,application/pdf" multiple>
     </section>
 
     <section class="screen" id="screen-review" data-screen="review">
@@ -279,6 +327,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=71"></script>
+  <script type="module" src="js/app.js?v=75"></script>
 </body>
 </html>

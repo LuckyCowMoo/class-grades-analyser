@@ -256,7 +256,9 @@ function parsePupilProgress(rows, fileInfo, filename) {
     else if ((m = t.match(/\bY(?:ear)?\s*(\d{1,2})\b/i)) && !fields.yearGroup) addField('yearGroup', 'useful', 'Year group', m[1]);
     if ((m = t.match(/\bClass\s+([A-Z0-9][A-Z0-9/._-]{1,20})/i))) addField('class', 'context', 'Class', m[1]);
     if (/christ\s*the\s*king/i.test(t) || /high\s*school/i.test(t)) addField('school', 'context', 'School', t.replace(/\s*\|\s*/g, ' '));
-    if (/^(ms|mr|mrs|miss|mx|dr)\b/i.test(t.trim())) addField('teacher', 'context', 'Teacher', t.trim());
+    const tm = t.match(/(?:class\s*teacher|teacher|taught\s*by|form\s*tutor|tutor)\s*:\s*([^|]+)/i);
+    if (tm) addField('teacher', 'context', 'Teacher', tm[1].trim());
+    else if (/^(?:ms|mr|mrs|miss|mx|dr)\.?\s+[A-Za-z]/i.test(t.trim())) addField('teacher', 'context', 'Teacher', t.trim());
     if (/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(t.trim())) addField('period', 'context', 'Report date', t.trim());
   }
 
@@ -737,15 +739,16 @@ function extractFieldsFromRow(row) {
 const UPN_RE = /\b[A-HJ-NP-RT-Z]\d{12}\b|\b[A-HJ-NP-RT-Z]\d{11}[A-Z]\b/g; // permanent and temporary UPNs
 const ULN_RE = /\b\d{10}\b/g;
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
-const UK_PHONE_RE = /(?:(?:\+44\s?\d{4}|\(?0\d{4}\)?)\s?\d{3}\s?\d{3}|(?:\+44\s?\d{3}|\(?0\d{3}\)?)\s?\d{3}\s?\d{4}|(?:\+44\s?\d{2}|\(?0\d{2}\)?)\s?\d{4}\s?\d{4})\b/g;
+const UK_PHONE_RE = /(?:(?:\+44\s?\d{4}|\(?0\d{4}\)?)\s?\d{3}\s?\d{3}|(?:\+44\s?\d{3}|\(?0\d{3}\)?)\s?\d{3}\s?\d{4}|(?:\+44\s?\d{2}|\(?0\d{2}\)?)\s?\d{4}\s?\d{4}|\b07\d{3}\s?\d{3}\s?\d{3}\b)\b/g;
 const POSTCODE_RE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/g;
 const DATE_RE = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b|\b\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{2,4}\b/gi;
+const FULL_DATE_RE = /\b\d{1,2}[\/.\-]\d{1,2}[\/.\-](?:19|20)\d{2}\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b/gi;
 const LONG_DIGITS_RE = /\b\d{6,}\b/g;
 
 export function findIdentifiers(text) {
   const out = [];
   const s = String(text || '');
-  for (const re of [UPN_RE, EMAIL_RE, POSTCODE_RE]) {
+  for (const re of [UPN_RE, ULN_RE, EMAIL_RE, UK_PHONE_RE, POSTCODE_RE, LONG_DIGITS_RE, FULL_DATE_RE]) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(s))) out.push(m[0]);
@@ -753,7 +756,7 @@ export function findIdentifiers(text) {
   return out;
 }
 
-export const PII_PATTERNS = { UPN_RE, ULN_RE, EMAIL_RE, UK_PHONE_RE, POSTCODE_RE, DATE_RE, LONG_DIGITS_RE };
+export const PII_PATTERNS = { UPN_RE, ULN_RE, EMAIL_RE, UK_PHONE_RE, POSTCODE_RE, DATE_RE, FULL_DATE_RE, LONG_DIGITS_RE };
 
 // ---------------------------------------------------------------------------
 // Filename parsing: "John-Smith-A123456789012.pdf", "Smith, John - 9X.pdf", ...

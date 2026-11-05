@@ -1,9 +1,9 @@
 import * as pdfjsLib from '../vendor/pdf.min.js';
 import { extractPdfStructure } from './pdf-extract.js';
 import { parseReport, classifyValue } from './parse-report.js';
-import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=6';
-import { wordsAround } from './common-names.js?v=3';
-import { listModelsForProvider, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID, estimateTextTokens, reportCostFromRates, reportUsageEstimate, looksReasoningModel, usageCost, usageSplit, formatGbp, USD_TO_GBP } from './ai-client.js?v=13';
+import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey, anonymiseText, verifyAllMessagesSafe } from './anonymise.js?v=7';
+import { wordsAround } from './common-names.js?v=4';
+import { listModelsForProvider, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID, estimateTextTokens, reportCostFromRates, reportUsageEstimate, looksReasoningModel, usageCost, usageSplit, formatGbp, USD_TO_GBP, setSecurityDataset } from './ai-client.js?v=14';
 import { buildOutgoing, parseOutgoingCombined, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=5';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { attachReportStream } from './report-stream.js?v=4';
@@ -44,6 +44,10 @@ const state = {
   reportId: null,
   nameScanConfirmed: null,
   nameScanPending: null,
+  combineClasses: [],
+  combineActive: null,
+  combineQuery: '',
+  combineBusy: false,
 };
 
 let transitioning = false;
@@ -299,6 +303,7 @@ function showScreen(name) {
     paintUsage();
     renderGuard();
   }
+  if (name === 'combine') renderCombine();
 }
 
 async function goTo(name) {
@@ -404,17 +409,27 @@ function placeBloomCircle(el, x, y, size, scale, opacity) {
   if (opacity != null) el.style.opacity = String(opacity);
 }
 
-async function bloomReveal(to) {
+function bloomPartners(origin) {
+  if (!origin) return [];
+  if (origin.classList.contains('upload-disc')) return [...document.querySelectorAll('#screen-home .upload-disc, #screen-home .upload-orb')];
+  if (origin.classList.contains('combine-start-disc')) return [...document.querySelectorAll('#screen-combine .combine-start-disc, #screen-combine .combine-start')];
+  if (origin.classList.contains('combine-moon-origin')) return [...document.querySelectorAll('#screen-home .combine-open')];
+  return [origin];
+}
+
+async function bloomReveal(to, source) {
   const fx = $('fx');
   const blob = fx.querySelector('.fx-blob');
   const full = fx.querySelector('.fx-full');
   const dest = $(`screen-${to}`);
-  const home = $('screen-home');
+  const origin = source || document.querySelector('.upload-disc');
+  const host = origin && origin.closest('.screen');
+  const partners = bloomPartners(origin);
   if (reduceMotion()) {
     showScreen(to);
     return;
   }
-  const from = document.querySelector('.upload-disc').getBoundingClientRect();
+  const from = origin.getBoundingClientRect();
   const size = from.width;
   const cx = from.left + size / 2;
   const cy = from.top + from.height / 2;
@@ -424,7 +439,8 @@ async function bloomReveal(to) {
 
   placeBloomCircle(blob, cx, cy, size, 1, 1);
   placeBloomCircle(full, cx, cy, size, 1, 0);
-  home.classList.add('bloom-leave');
+  if (host) host.classList.add('bloom-leave');
+  partners.forEach((el) => el.classList.add('bloom-source'));
   fx.className = 'fx go bloom';
   try {
     await Promise.all([
@@ -467,7 +483,8 @@ async function bloomReveal(to) {
       { opacity: 0 },
     ], { duration: 160, easing: 'ease-out' });
   } finally {
-    home.classList.remove('bloom-leave');
+    if (host) host.classList.remove('bloom-leave');
+    partners.forEach((el) => el.classList.remove('bloom-source'));
     fx.className = 'fx';
     try {
       blob.getAnimations().forEach((a) => a.cancel());
@@ -510,7 +527,9 @@ async function doorsThenHome() {
 }
 
 async function playTransition(from, to) {
-  if (from === 'home' && to === 'review') return bloomReveal(to);
+  if (from === 'home' && to === 'review') return bloomReveal(to, document.querySelector('.upload-disc'));
+  if (from === 'home' && to === 'combine') return bloomReveal(to, document.querySelector('.combine-moon-origin'));
+  if (from === 'combine' && to === 'review') return bloomReveal(to, document.querySelector('.combine-start-disc'));
   if (from === 'home' && to === 'help') {
     return coverThenAssemble({ fxClass: 'slash-wipe', coverMs: 720, to, fromColor: 'peach' });
   }
@@ -630,8 +649,9 @@ function wireUpload() {
   });
 }
 
-async function handleFiles(files, { followUp = false } = {}) {
+async function expandUploads(files) {
   const pdfs = [];
+  const errors = [];
   for (const f of files) {
     const name = f.name || 'file';
     if (/\.zip$/i.test(name)) {
@@ -640,18 +660,21 @@ async function handleFiles(files, { followUp = false } = {}) {
         const entries = Object.values(zip.files).filter((z) => !z.dir && /\.pdf$/i.test(z.name) && !/(^|\/)(__MACOSX|\.)/.test(z.name));
         for (const z of entries) pdfs.push({ name: z.name.split('/').pop(), data: await z.async('uint8array') });
       } catch (err) {
-        showProgress(true, `Could not open ${name}: ${err.message}`, 0);
+        errors.push(`Could not open ${name}: ${err.message}`);
       }
     } else if (/\.pdf$/i.test(name)) {
       pdfs.push({ name, data: new Uint8Array(await f.arrayBuffer()) });
     }
   }
-  if (!pdfs.length) { showProgress(false); return []; }
-  if (!followUp) { state.files = []; state.parsedPupils = []; }
+  return { pdfs, errors };
+}
+
+async function parsePdfs(pdfs, onItem) {
   const parsed = [];
+  const fileItems = [];
   let done = 0;
   for (const pdf of pdfs) {
-    showProgress(true, `${pdf.name}  ·  ${done + 1} of ${pdfs.length}`, done / pdfs.length);
+    if (onItem) onItem(pdf, done, pdfs.length);
     const item = { name: pdf.name, status: 'ok', pupils: [], warnings: [] };
     try {
       const structure = await extractPdfStructure(pdfjsLib, pdf.data);
@@ -666,17 +689,305 @@ async function handleFiles(files, { followUp = false } = {}) {
       item.status = 'bad';
       item.warnings.push(err.message);
     }
-    if (!followUp) state.files.push(item);
+    fileItems.push(item);
     done++;
     await new Promise((r) => setTimeout(r, 0));
   }
+  return { pupils: parsed, files: fileItems };
+}
+
+async function handleFiles(files, { followUp = false } = {}) {
+  const { pdfs, errors } = await expandUploads(files);
+  if (errors.length && !pdfs.length) showProgress(true, errors[0], 0);
+  if (!pdfs.length) { showProgress(false); return []; }
+  if (!followUp) { state.files = []; state.parsedPupils = []; }
+  const { pupils, files: items } = await parsePdfs(pdfs, (pdf, done, total) => {
+    showProgress(true, `${pdf.name}  ·  ${done + 1} of ${total}`, done / total);
+  });
   showProgress(false, 'Done.', 1);
-  if (followUp) return parsed;
+  if (followUp) return pupils;
+  state.files = items;
   rebuildFromFiles();
   await wait(700);
   showProgress(false);
   await goTo('review');
-  return parsed;
+  return pupils;
+}
+
+const CLASS_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+function combineLabel(index, meta) {
+  const letter = index < CLASS_LETTERS.length ? CLASS_LETTERS[index] : String(index + 1);
+  const code = (meta && meta.classCode || '').trim();
+  return code ? `Class ${letter} · ${code}` : `Class ${letter}`;
+}
+
+function combineRows(pupils) {
+  const byName = new Map();
+  const rows = [];
+  for (const p of pupils) {
+    const named = p.displayName && !/^unknown pupil/i.test(p.displayName);
+    const key = named ? p.displayName.toLowerCase() : '';
+    if (key && byName.has(key)) {
+      const existing = byName.get(key);
+      existing.pupil.assessments = existing.pupil.assessments.concat(p.assessments || []);
+      continue;
+    }
+    const row = {
+      id: `p${Date.now().toString(36)}${rows.length}`,
+      name: p.displayName || 'Unknown pupil',
+      picked: false,
+      pupil: { ...p, assessments: [...(p.assessments || [])] },
+    };
+    if (key) byName.set(key, row);
+    rows.push(row);
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name, 'en-GB', { sensitivity: 'base' }));
+  return rows;
+}
+
+function tickedCombineCount() {
+  return state.combineClasses.reduce((n, cls) => n + cls.rows.filter((r) => r.picked).length, 0);
+}
+
+function renderCombineCount() {
+  const el = $('combine-count');
+  const word = $('combine-count-word');
+  if (!el) return;
+  const n = tickedCombineCount();
+  const text = String(n);
+  if (word) word.textContent = n === 1 ? 'pupil' : 'pupils';
+  if (el.textContent === text) return;
+  el.textContent = text;
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+}
+
+function layoutCombineColumns() {
+  const board = $('combine-board');
+  if (!board || state.screen !== 'combine') return;
+  const cols = [...board.querySelectorAll('.combine-col')];
+  if (!cols.length) return;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const gap = 18;
+  const marginL = Math.max(28, w * 0.04);
+  const go = Math.min(w * 0.36, 400);
+  const reserveR = w * 0.015 + go * 1.16 + 16;
+  board.style.right = `${reserveR}px`;
+  const n = cols.length;
+  const avail = Math.max(160, w - marginL - reserveR);
+  let colW = Math.min(220, (avail - gap * Math.max(0, n - 1)) / n);
+  if (colW < 168) colW = 168;
+  const total = marginL + n * colW + (n - 1) * gap + 24;
+  board.style.setProperty('--board-w', `${Math.max(total, board.clientWidth)}px`);
+  cols.forEach((col, i) => {
+    const left = marginL + i * (colW + gap);
+    col.style.left = `${left}px`;
+    col.style.width = `${colW}px`;
+    const cx = left - board.scrollLeft + colW / 2;
+    const seam = h * (0.48 - 0.14 * (cx / w));
+    const head = col.querySelector('.combine-col-head');
+    const headH = head ? head.offsetHeight : 48;
+    const top = Math.max(12, seam - headH / 2);
+    col.style.top = `${top}px`;
+    col.style.height = `${Math.max(headH + 48, h - top - 20)}px`;
+  });
+}
+
+function renderCombine() {
+  const board = $('combine-board');
+  if (!board) return;
+  const status = $('combine-status');
+  const q = state.combineQuery.trim().toLowerCase();
+  board.innerHTML = '';
+  let shown = 0;
+  for (const cls of state.combineClasses) {
+    const col = document.createElement('div');
+    col.className = 'combine-col';
+    const head = document.createElement('div');
+    head.className = 'combine-col-head';
+    const pill = document.createElement('div');
+    pill.className = 'pill combine-class-pill';
+    const name = document.createElement('span');
+    name.textContent = cls.label;
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'combine-remove';
+    rm.dataset.removeClass = cls.id;
+    rm.setAttribute('aria-label', `Remove ${cls.label}`);
+    rm.textContent = '×';
+    pill.append(name, rm);
+    head.appendChild(pill);
+    const pupils = document.createElement('div');
+    pupils.className = 'combine-col-pupils';
+    const rows = cls.rows.filter((r) => !q || r.name.toLowerCase().includes(q));
+    shown += rows.length;
+    for (const row of rows) {
+      const label = document.createElement('label');
+      label.className = 'combine-pupil';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = row.picked;
+      box.dataset.pupil = row.id;
+      const pupil = document.createElement('span');
+      pupil.textContent = row.name;
+      label.append(box, pupil);
+      pupils.appendChild(label);
+    }
+    col.append(head, pupils);
+    board.appendChild(col);
+  }
+  const addCol = document.createElement('div');
+  addCol.className = 'combine-col combine-col-add';
+  const addHead = document.createElement('div');
+  addHead.className = 'combine-col-head';
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'pill';
+  add.id = 'combine-add';
+  add.textContent = 'Add class';
+  add.disabled = state.combineBusy;
+  addHead.appendChild(add);
+  addCol.appendChild(addHead);
+  board.appendChild(addCol);
+  if (status && !state.combineBusy) {
+    status.textContent = (q && state.combineClasses.length && !shown) ? 'No pupil matches that search.' : '';
+  }
+  renderCombineCount();
+  layoutCombineColumns();
+}
+
+function removeCombineClass(id) {
+  state.combineClasses = state.combineClasses.filter((c) => c.id !== id);
+  if (state.combineActive === id) state.combineActive = (state.combineClasses[0] && state.combineClasses[0].id) || null;
+  renderCombine();
+}
+
+async function addCombineClass(files) {
+  if (state.combineBusy) return;
+  state.combineBusy = true;
+  const addBtn = $('combine-add');
+  if (addBtn) addBtn.disabled = true;
+  const status = $('combine-status');
+  let holdStatus = '';
+  try {
+    const { pdfs, errors } = await expandUploads(files);
+    if (!pdfs.length) {
+      holdStatus = errors[0] || 'That was not a zip or PDF of pupil reports.';
+      return;
+    }
+    const { pupils, files: items } = await parsePdfs(pdfs, (pdf, done, total) => {
+      if (status) status.textContent = `Reading ${pdf.name} · ${done + 1} of ${total}`;
+    });
+    const rows = combineRows(pupils);
+    if (!rows.length) {
+      holdStatus = 'No pupil names were found in that file.';
+      return;
+    }
+    const meta = classMetaFromPupils(rows.map((r) => r.pupil));
+    const cls = {
+      id: `c${Date.now().toString(36)}`,
+      label: combineLabel(state.combineClasses.length, meta),
+      rows,
+      files: items,
+    };
+    state.combineClasses.push(cls);
+    state.combineActive = cls.id;
+  } finally {
+    state.combineBusy = false;
+    renderCombine();
+    if (holdStatus && status) status.textContent = holdStatus;
+  }
+}
+
+function startCombinedClass() {
+  const picked = [];
+  let classesUsed = 0;
+  for (const cls of state.combineClasses) {
+    const chosen = cls.rows.filter((r) => r.picked);
+    if (!chosen.length) continue;
+    classesUsed += 1;
+    picked.push(...chosen.map((r) => r.pupil));
+  }
+  if (!picked.length) {
+    const start = $('combine-start');
+    if (start) {
+      start.classList.remove('need-picks');
+      void start.offsetWidth;
+      start.classList.add('need-picks');
+    }
+    return;
+  }
+  const byName = new Map();
+  const pupils = [];
+  for (const p of picked) {
+    const named = p.displayName && !/^unknown pupil/i.test(p.displayName);
+    const key = named ? p.displayName.toLowerCase() : '';
+    if (key && byName.has(key)) {
+      const existing = byName.get(key);
+      existing.assessments = existing.assessments.concat(p.assessments || []);
+      continue;
+    }
+    const copy = { ...p, assessments: [...(p.assessments || [])] };
+    if (key) byName.set(key, copy);
+    pupils.push(copy);
+  }
+  state.files = [{ name: 'Intervention group', status: 'ok', pupils, warnings: [] }];
+  state.parsedPupils = [];
+  rebuildFromFiles();
+  const note = $('parse-status');
+  if (note) note.textContent = `Intervention group from ${classesUsed} class${classesUsed === 1 ? '' : 'es'}. ${note.textContent}`;
+  goTo('review');
+}
+
+function wireCombine() {
+  const search = $('combine-search');
+  if (search) {
+    search.addEventListener('input', () => {
+      state.combineQuery = search.value;
+      renderCombine();
+    });
+  }
+  const board = $('combine-board');
+  if (board) {
+    board.addEventListener('click', (e) => {
+      const rm = e.target.closest('[data-remove-class]');
+      if (rm) { removeCombineClass(rm.dataset.removeClass); return; }
+      if (e.target.closest('#combine-add')) $('combine-file').click();
+    });
+    board.addEventListener('change', (e) => {
+      const id = e.target && e.target.dataset && e.target.dataset.pupil;
+      if (!id) return;
+      for (const cls of state.combineClasses) {
+        const row = cls.rows.find((r) => r.id === id);
+        if (row) row.picked = !!e.target.checked;
+      }
+      renderCombineCount();
+    });
+    board.addEventListener('scroll', () => layoutCombineColumns());
+  }
+  window.addEventListener('resize', () => layoutCombineColumns());
+  const file = $('combine-file');
+  if (file) {
+    file.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (files.length) addCombineClass(files);
+    });
+  }
+  const screen = $('screen-combine');
+  if (screen) {
+    ['dragenter', 'dragover'].forEach((ev) => screen.addEventListener(ev, (e) => e.preventDefault()));
+    screen.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) addCombineClass(files);
+    });
+  }
+  const start = $('combine-start');
+  if (start) start.addEventListener('click', () => startCombinedClass());
 }
 
 function showProgress(show, text = '', frac = 0) {
@@ -734,6 +1045,19 @@ function classMetaFromPupils(pupils) {
 function rebuildDataset() {
   state.dataset = buildClassDataset(state.parsedPupils, { includePastoral: state.settings.includePastoral });
   const ds = state.dataset;
+  if (state.combineClasses && state.combineClasses.length) {
+    for (const cls of state.combineClasses) {
+      for (const row of cls.rows || []) {
+        const p = row.pupil;
+        if (p) {
+          if (p.displayName) ds.fullNames.add(p.displayName.toLowerCase());
+          (p.nameTokens || []).forEach((t) => ds.nameTokens.add(t));
+          (p.identifiers || []).forEach((id) => ds.identifierStrings.add(id));
+        }
+      }
+    }
+  }
+  setSecurityDataset(ds);
   const meta = classMetaFromPupils(state.parsedPupils);
   ds.classCode = meta.classCode;
   ds.teacherName = meta.teacherName;
@@ -888,10 +1212,11 @@ function fillPromptPicker() {
 function doRefreshPayload() {
   const ds = state.dataset;
   if (!ds) return;
+  setSecurityDataset(ds);
   const context = {
     subject: ds.scrub($('subject').value, null, 'subject'),
     yearGroup: ds.scrub($('year-group').value, null, 'year group'),
-    notes: $('extra-context').value,
+    notes: ds.scrub($('extra-context').value, null, 'notes'),
     templateTopics: state.templateTopics.map((t) => ds.scrub(t, null, 'template')),
   };
   state.payload = buildPayload(ds, context);
@@ -910,7 +1235,8 @@ function doRefreshPayload() {
   });
   const ta = $('outgoing-edit');
   if (ta && state.outgoingTouched) {
-    state.outgoing = parseOutgoingCombined(ta.value);
+    const rawVal = ds.scrub(ta.value, null, 'outgoing-edit', { keepLayout: true });
+    state.outgoing = parseOutgoingCombined(rawVal);
   } else {
     if (ta) ta.value = built.combined;
     state.outgoing = built;
@@ -965,16 +1291,15 @@ function nameSnippetHtml(hit) {
 function nameWarningHtml(names, { actions = false } = {}) {
   const rows = names.map((n) => `<li>${nameSnippetHtml(n)}</li>`).join('');
   const next = actions
-    ? `<p>If that is a person, go back and take it out. If the scan was wrong, you can still send it.</p>
-       <div class="name-warning-actions">
-         <button type="button" class="pill name-goback">Go back</button>
-         <button type="button" class="pill name-anyway">Send anyway</button>
+    ? `<div class="name-warning-actions">
+         <button type="button" class="pill name-goback">Go back and edit</button>
+         <button type="button" class="pill ghost name-anyway">Send anyway</button>
        </div>`
-    : `<p>If that is a person, edit the exact message.</p>`;
-  return `<strong>Stop — this still looks like it has a person’s name in it.</strong>
-    <p>The scan found:</p>
+    : `<p>If these are question text or author names, you can send anyway on the next page.</p>`;
+  return `<strong>This message contains possible names.</strong>
+    <p>The safeguard spotted words that look like personal names in the message:</p>
     <ul class="name-snips">${rows}</ul>
-    <p>If that is a pupil, a teacher, or anyone at the school, take it out of the message. Do not send it.</p>
+    <p>If these are pupil or staff names, please go back and replace them with codes. If they are question text or author names (e.g. in an assessment title or question such as "Alice has 3 watermelons"), you can send anyway.</p>
     ${next}`;
 }
 
@@ -1041,10 +1366,25 @@ async function loadTemplate(file) {
   try {
     const structure = await extractPdfStructure(pdfjsLib, new Uint8Array(await file.arrayBuffer()));
     const parsed = parseReport(structure, { filename: file.name });
+    const hasPupilData = parsed.pupils.some((p) => (p.displayName && !/^unknown pupil/i.test(p.displayName)) || (p.identifiers && p.identifiers.length));
+    if (hasPupilData && state.dataset) {
+      for (const p of parsed.pupils) {
+        if (p.displayName) state.dataset.fullNames.add(p.displayName.toLowerCase());
+        (p.nameTokens || []).forEach((t) => state.dataset.nameTokens.add(t));
+        (p.identifiers || []).forEach((id) => state.dataset.identifierStrings.add(id));
+      }
+    }
     const names = [];
-    for (const p of parsed.pupils) for (const a of p.assessments) if (a.name) names.push(a.name);
+    for (const p of parsed.pupils) {
+      for (const a of p.assessments) {
+        if (a.name) {
+          const clean = state.dataset ? state.dataset.scrub(a.name, null, 'template') : a.name;
+          if (clean && !clean.includes('[removed]')) names.push(clean);
+        }
+      }
+    }
     state.templateTopics = [...new Set(names)];
-    $('empty-assessment-status').textContent = `${state.templateTopics.length} course items were read from the empty sheet.`;
+    $('empty-assessment-status').textContent = `${state.templateTopics.length} course items were read from the sheet.${hasPupilData ? ' (All pupil names/IDs stripped).' : ''}`;
     refreshPayload();
   } catch (err) {
     $('empty-assessment-status').textContent = `That PDF could not be read (${err.message}).`;
@@ -1312,6 +1652,7 @@ async function runAnalysis({ followUp = false } = {}) {
     $('run-status').textContent = 'There is no class data to send yet.';
     return;
   }
+  setSecurityDataset(state.dataset);
   try {
     doRefreshPayload();
   } catch (err) {
@@ -1326,18 +1667,12 @@ async function runAnalysis({ followUp = false } = {}) {
   const outgoing = (state.outgoing && state.outgoing.combined) || '';
   const names = possibleNameHits(state.guard);
   if (names.length && state.nameScanConfirmed !== outgoing) {
-    const bannerUp = [...document.querySelectorAll('#screen-analyse .name-banner')].some((el) => !el.hidden && el.classList.contains('names'));
-    const warned = bannerUp || (state.nameScanPending && !state.nameScanPending.followUp && state.nameScanPending.text === outgoing);
-    if (!warned) {
-      state.nameScanPending = { followUp: false, text: outgoing };
-      renderGuard();
-      $('run-status').textContent = 'Check the name warning. Press Go again if the scan was wrong.';
-      const banner = document.querySelector('#screen-analyse .name-banner');
-      if (banner) banner.scrollIntoView({ block: 'nearest' });
-      return;
-    }
-    state.nameScanConfirmed = outgoing;
-    state.nameScanPending = null;
+    state.nameScanPending = { followUp: false, text: outgoing };
+    renderGuard();
+    $('run-status').textContent = 'Check the name warning. If it is only a question or author name, click Send anyway.';
+    const banner = document.querySelector('#screen-analyse .name-banner');
+    if (banner) banner.scrollIntoView({ block: 'nearest' });
+    return;
   }
   if (!followUp) {
     const system = (state.outgoing.system || '').trim();
@@ -1353,6 +1688,16 @@ async function runAnalysis({ followUp = false } = {}) {
   } else if (state.reportId != null && state.reportId !== '') {
     state.reportId = String(state.reportId);
   }
+
+  // Pre-flight validation on entire conversation history
+  const historyCheck = verifyAllMessagesSafe(state.messages, state.dataset);
+  if (!historyCheck.ok) {
+    $('run-status').textContent = 'Blocked by the privacy check: identifying pupil data detected in message history.';
+    setAnalysePhase('idle');
+    renderGuard();
+    return;
+  }
+
   hideReportNameWarnings();
   state.usage.livePrompt = estimateTextTokens(state.messages.map((m) => m.content).join('\n'));
   state.usage.liveCompletion = 0;
@@ -1627,19 +1972,21 @@ async function importPastedReply(raw) {
   }
   const pastedUsage = parseUsageComment(markdown);
   const ctx = promptContextForPaste() || {};
+  const stripped = stripUsageComment(markdown);
+  const safeMarkdown = state.dataset ? anonymiseText(stripped, state.dataset) : stripped;
   const rec = {
     id: `${Date.now()}`,
     savedAt: new Date().toISOString(),
     subject: ctx.subject || '',
     yearGroup: ctx.yearGroup || '',
     model: 'Pasted',
-    markdown: stripUsageComment(markdown),
+    markdown: safeMarkdown,
     reasoning: '',
     usage: pastedUsage || undefined,
     messages: [
       ...(ctx.system ? [{ role: 'system', content: ctx.system }] : []),
       ...(ctx.user || ctx.prompt ? [{ role: 'user', content: ctx.user || ctx.prompt }] : []),
-      { role: 'assistant', content: stripUsageComment(markdown) },
+      { role: 'assistant', content: safeMarkdown },
     ],
     pupilKey: ctx.pupilKey || [],
     codePrefix: ctx.codePrefix || '',
@@ -1839,21 +2186,22 @@ async function sendFollowUp() {
   if (!state.dataset || state.abort) return;
   let text = $('followup').value.trim();
   if (!text) return;
-  text = state.dataset.scrub(text, null, 'follow-up');
+  text = anonymiseText(text, state.dataset);
   const g = guardPayload(text, state.dataset);
-  if (!g.ok) { $('run-status').textContent = 'That follow-up still looks identifying. Use codes, not names.'; return; }
+  if (!g.ok) {
+    const hits = g.findings.map((f) => f.match).slice(0, 3).join(', ');
+    $('run-status').textContent = `Blocked: That follow-up mentions personal data (${hits}). Use codes like P07.`;
+    return;
+  }
   const names = possibleNameHits(g);
   if (names.length && state.nameScanConfirmed !== text) {
-    const warned = state.nameScanPending && state.nameScanPending.followUp && state.nameScanPending.text === text;
-    if (!warned) {
-      state.guard = g;
-      state.nameScanPending = { followUp: true, text };
-      renderGuard();
-      $('run-status').textContent = 'Check the name warning. Send again if the scan was wrong.';
-      return;
-    }
-    state.nameScanConfirmed = text;
-    state.nameScanPending = null;
+    state.guard = g;
+    state.nameScanPending = { followUp: true, text };
+    renderGuard();
+    $('run-status').textContent = 'Check the name warning. If it is only a question or author name, click Send anyway.';
+    const banner = document.querySelector('#screen-analyse .name-banner');
+    if (banner) banner.scrollIntoView({ block: 'nearest' });
+    return;
   }
   $('followup').value = '';
   sizeFollowUp();
@@ -1885,6 +2233,12 @@ function resetClass() {
   state.reportId = null;
   state.nameScanConfirmed = null;
   state.nameScanPending = null;
+  state.combineClasses = [];
+  state.combineActive = null;
+  state.combineQuery = '';
+  state.combineBusy = false;
+  const search = $('combine-search');
+  if (search) search.value = '';
   resetUsage();
   setAnalysePhase('idle');
   reportStream.reset();
@@ -1907,6 +2261,7 @@ function init() {
   wireChrome();
   wireSettings();
   wireUpload();
+  wireCombine();
   fillPromptPicker();
   ['subject', 'year-group', 'extra-context'].forEach((id) => $(id).addEventListener('input', refreshPayload));
   $('empty-assessment').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) loadTemplate(f); });

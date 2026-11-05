@@ -8,6 +8,8 @@
 //                                    or unavailable (common with free models).
 
 import { AI_PROVIDERS, FALLBACK_MODELS } from './ai-providers.js?v=4';
+import { guardPayload } from './anonymise.js?v=7';
+import { PII_PATTERNS } from './parse-report.js';
 
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 export const APP_TITLE = 'Class Grades Analyser';
@@ -15,6 +17,46 @@ export const FREE_ROUTER_ID = 'openrouter/free';
 export const REPORT_TOKEN_ESTIMATE = 2000;
 export const REPORT_REASONING_OUTPUT = 6000;
 export const REPORT_INPUT_FALLBACK = 16000;
+
+let activeSecurityDataset = null;
+
+export function setSecurityDataset(dataset) {
+  activeSecurityDataset = dataset;
+}
+
+export function assertSafeToSend(messages, system = '') {
+  const allTexts = [];
+  if (system) allTexts.push(system);
+  for (const m of messages || []) {
+    if (m && m.content) allTexts.push(typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
+  }
+  const combined = allTexts.join('\n\n');
+
+  // 1. Dataset-specific check (pupil names, tokens, identifiers, context)
+  if (activeSecurityDataset) {
+    const g = guardPayload(combined, activeSecurityDataset);
+    if (!g.ok) {
+      const details = g.findings.map((f) => `${f.type}: "${f.match}"`).slice(0, 5).join('; ');
+      throw new AiError(`PRIVACY FAIL-SAFE: Outgoing transmission strictly blocked. Identifying data detected: ${details}`, { status: 0, retryable: false, code: 'privacy_blocked' });
+    }
+  }
+
+  // 2. Global pattern checks (even if dataset is not yet attached)
+  for (const [name, re] of [
+    ['UPN', PII_PATTERNS.UPN_RE],
+    ['ULN', PII_PATTERNS.ULN_RE],
+    ['Email', PII_PATTERNS.EMAIL_RE],
+    ['Phone', PII_PATTERNS.UK_PHONE_RE],
+    ['Postcode', PII_PATTERNS.POSTCODE_RE],
+    ['Full date of birth', PII_PATTERNS.FULL_DATE_RE],
+  ]) {
+    re.lastIndex = 0;
+    const m = re.exec(combined);
+    if (m) {
+      throw new AiError(`PRIVACY FAIL-SAFE: Outgoing transmission strictly blocked. Identifying pattern (${name}: "${m[0]}") detected.`, { status: 0, retryable: false, code: 'privacy_blocked' });
+    }
+  }
+}
 
 export async function fetchModels(baseUrl = OPENROUTER_BASE, apiKey = '') {
   const headers = { Accept: 'application/json' };
@@ -766,6 +808,7 @@ function splitSystem(messages) {
 
 async function streamClaude({ apiKey, model, messages, maxTokens, signal, onDelta, onReasoning, onStatus }) {
   const { system, rest } = splitSystem(messages);
+  assertSafeToSend(messages, system);
   onStatus && onStatus(`Contacting ${model}…`);
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -847,6 +890,7 @@ async function readAnthropicStream(res, model, onDelta, onReasoning, onStatus) {
 
 async function streamGemini({ apiKey, model, messages, maxTokens, signal, onDelta, onReasoning, onStatus }) {
   const { system, rest } = splitSystem(messages);
+  assertSafeToSend(messages, system);
   const id = String(model || '').replace(/^models\//, '');
   onStatus && onStatus(`Contacting ${model}…`);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(id)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
@@ -906,6 +950,7 @@ async function streamGemini({ apiKey, model, messages, maxTokens, signal, onDelt
 }
 
 export async function streamChat({ provider = 'openrouter', baseUrl, apiKey, model, messages, reasoning = true, dataCollection = 'deny', storingFallback = false, isOpenRouter = true, maxTokens = null, signal, onDelta, onReasoning, onStatus }) {
+  assertSafeToSend(messages);
   const id = provider || (isOpenRouter ? 'openrouter' : 'openai');
   const info = AI_PROVIDERS[id] || AI_PROVIDERS.openrouter;
   if (info.auth === 'anthropic') {
@@ -923,7 +968,7 @@ export async function streamChat({ provider = 'openrouter', baseUrl, apiKey, mod
     body.provider = { data_collection: dataCollection, allow_fallbacks: true };
   }
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
-  if (or && typeof location !== 'undefined') {
+  if (or && typeof location !== 'undefined' && location.origin && location.origin.startsWith('http')) {
     headers['HTTP-Referer'] = location.origin;
     headers['X-Title'] = APP_TITLE;
   }
@@ -1074,6 +1119,7 @@ async function runModelAttempts({ model, policy, storingFallback = false, maxTok
 // "deny" tries a provider that does not store prompts, then the same anonymised
 // table with a provider that may store it. "deny-strict" never takes that second step.
 export async function runWithFallback({ candidates, provider = 'openrouter', baseUrl, apiKey, messages, isOpenRouter, dataCollection, signal, onDelta, onReasoning, onStatus, onModelChange }) {
+  assertSafeToSend(messages);
   const errors = [];
   const or = (provider || 'openrouter') === 'openrouter' && (isOpenRouter !== false);
   const strict = dataCollection === 'deny-strict';

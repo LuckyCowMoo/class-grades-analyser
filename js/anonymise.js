@@ -12,9 +12,12 @@
 //    allowed out ("belt and braces").
 
 import { classifyValue, matchLabel, measureFlags, PII_PATTERNS } from './parse-report.js';
-import { scanCommonNames, wordsAround } from './common-names.js?v=3';
+import { scanCommonNames, wordsAround } from './common-names.js?v=4';
+import { SCHOOL_VARIANTS } from './config.js';
 
 const CODE_PREFIXES = ['P', 'S', 'K', 'Q', 'Z', 'ID'];
+const HONORIFICS = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'mx', 'prof', 'rev', 'sir']);
+const SCHOOL_STOP_WORDS = new Set(['school', 'high', 'academy', 'college', 'sixth', 'form', 'centre', 'catholic', 'the', 'and', 'of']);
 
 export function buildClassDataset(parsedPupils, options = {}) {
   const { includePastoral = false, seed = null } = options;
@@ -37,6 +40,9 @@ export function buildClassDataset(parsedPupils, options = {}) {
       excluded: p.excluded,
       warnings: p.warnings,
       rowsAreSubjects: p.rowsAreSubjects,
+      teacher: p.teacher,
+      school: p.school,
+      classCode: p.classCode,
     };
   });
 
@@ -45,24 +51,57 @@ export function buildClassDataset(parsedPupils, options = {}) {
   const fullNames = new Set();
   const identifierStrings = new Set();
   const contextStrings = new Set();
+
+  for (const variant of SCHOOL_VARIANTS || []) {
+    if (variant && variant.length >= 3) {
+      contextStrings.add(variant);
+      for (const tok of tokenise(variant)) {
+        if (!SCHOOL_STOP_WORDS.has(tok) && tok.length >= 4) {
+          contextStrings.add(tok);
+        }
+      }
+    }
+  }
+
   for (const p of pupils) {
-    p.nameTokens.forEach((t) => nameTokens.add(t));
+    (p.nameTokens || []).forEach((t) => nameTokens.add(t));
     if (p.displayName) fullNames.add(p.displayName.toLowerCase());
-    p.identifiers.forEach((id) => identifierStrings.add(id));
+    (p.identifiers || []).forEach((id) => identifierStrings.add(id));
+    if (p.teacher) {
+      contextStrings.add(p.teacher);
+      fullNames.add(p.teacher.toLowerCase());
+      for (const tok of tokenise(p.teacher)) {
+        if (!HONORIFICS.has(tok) && tok.length >= 2) nameTokens.add(tok);
+      }
+    }
+    if (p.school) {
+      contextStrings.add(p.school);
+      for (const tok of tokenise(p.school)) {
+        if (!SCHOOL_STOP_WORDS.has(tok) && tok.length >= 4) contextStrings.add(tok);
+      }
+    }
     for (const [key, list] of Object.entries(p.fields || {})) {
       for (const f of list) {
         if (!f.value) continue;
         if (f.cat === 'identifying') {
           identifierStrings.add(f.value);
           if (['name', 'forename', 'surname', 'preferredName', 'middleName', 'contact', 'teacher'].includes(key)) {
-            for (const tok of tokenise(f.value)) nameTokens.add(tok);
+            for (const tok of tokenise(f.value)) {
+              if (!HONORIFICS.has(tok)) nameTokens.add(tok);
+            }
           }
         } else if (f.cat === 'context' && ['teacher', 'school', 'class'].includes(key)) {
-          // Teacher, school and class names are blocked as whole strings (they are
-          // never part of the payload anyway). Periods, year groups and pastoral
-          // values (e.g. "96%") are simply never included; guarding them as strings
-          // would collide with real scores.
           contextStrings.add(f.value);
+          if (key === 'teacher') {
+            fullNames.add(f.value.toLowerCase());
+            for (const tok of tokenise(f.value)) {
+              if (!HONORIFICS.has(tok) && tok.length >= 2) nameTokens.add(tok);
+            }
+          } else if (key === 'school') {
+            for (const tok of tokenise(f.value)) {
+              if (!SCHOOL_STOP_WORDS.has(tok) && tok.length >= 4) contextStrings.add(tok);
+            }
+          }
         }
       }
     }
@@ -468,8 +507,15 @@ function fmt(n) {
 // Scrubbing + guard
 // ---------------------------------------------------------------------------
 
-export function tokenise(s) {
+function cleanUnicode(s) {
   return String(s || '')
+    .normalize('NFKD')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ');
+}
+
+export function tokenise(s) {
+  return cleanUnicode(s)
     .split(/[^\p{L}'’\-]+/u)
     .map((t) => t.replace(/^['’\-]+|['’\-]+$/g, '').toLowerCase())
     .filter((t) => t.length >= 2);
@@ -480,15 +526,23 @@ function makeScrubber({ nameTokens, fullNames, identifierStrings }) {
   const tokenRe = tokens.length ? new RegExp(`(^|[^\\p{L}])(${tokens.map(escapeRe).join('|')})(?=$|[^\\p{L}])`, 'giu') : null;
   const ids = [...identifierStrings].filter((s) => s && s.length >= 3).sort((a, b) => b.length - a.length);
   const idRe = ids.length ? new RegExp(`(${ids.map(escapeRe).join('|')})`, 'gi') : null;
-  const fulls = [...fullNames].filter((s) => s.length >= 3).sort((a, b) => b.length - a.length);
-  const fullRe = fulls.length ? new RegExp(`(${fulls.map(escapeRe).join('|')})`, 'gi') : null;
+  const fulls = [...fullNames].filter((s) => s.length >= 2).sort((a, b) => b.length - a.length);
+  const fullRe = fulls.length ? new RegExp(`(^|[^\\p{L}])${fulls.map(escapeRe).join('|')}(?=$|[^\\p{L}])`, 'giu') : null;
   return (text, log, where, { keepLayout = false } = {}) => {
-    let out = String(text ?? '');
+    let out = cleanUnicode(text ?? '');
     const before = out;
-    if (fullRe) out = out.replace(fullRe, '[removed]');
+    if (fullRe) out = out.replace(fullRe, (m, pre = '') => `${pre}[removed]`);
     if (idRe) out = out.replace(idRe, '[removed]');
-    if (tokenRe) out = out.replace(tokenRe, (m, pre) => `${pre}[removed]`);
-    for (const re of [PII_PATTERNS.UPN_RE, PII_PATTERNS.EMAIL_RE, PII_PATTERNS.UK_PHONE_RE, PII_PATTERNS.POSTCODE_RE, PII_PATTERNS.LONG_DIGITS_RE]) {
+    if (tokenRe) out = out.replace(tokenRe, (m, pre = '') => `${pre}[removed]`);
+    for (const re of [
+      PII_PATTERNS.UPN_RE,
+      PII_PATTERNS.ULN_RE,
+      PII_PATTERNS.EMAIL_RE,
+      PII_PATTERNS.UK_PHONE_RE,
+      PII_PATTERNS.POSTCODE_RE,
+      PII_PATTERNS.LONG_DIGITS_RE,
+      PII_PATTERNS.FULL_DATE_RE,
+    ]) {
       re.lastIndex = 0;
       out = out.replace(re, '[removed]');
     }
@@ -503,9 +557,9 @@ function escapeRe(s) {
 }
 
 // Scans the final payload. Returns { ok, findings:[{severity, type, match, context}] }.
-export function guardPayload(payload, dataset) {
+export function guardPayload(payload, dataset = {}) {
   const findings = [];
-  const text = String(payload);
+  const text = cleanUnicode(payload);
   const add = (severity, type, match, index, extra = {}) => {
     const start = Math.max(0, index - 40); const end = Math.min(text.length, index + String(match).length + 40);
     findings.push({
@@ -518,35 +572,36 @@ export function guardPayload(payload, dataset) {
     });
   };
 
-  // Full names and identifier strings, as whole strings.
-  for (const full of dataset.fullNames) {
-    if (full.length < 3) continue;
-    const re = new RegExp(escapeRe(full), 'gi');
-    let m; while ((m = re.exec(text))) add('block', 'pupil name', m[0], m.index);
+  // Full names and identifier strings, as whole words/strings.
+  for (const full of dataset.fullNames || []) {
+    if (!full || full.length < 2) continue;
+    const re = new RegExp(`(^|[^\\p{L}])${escapeRe(full)}(?=$|[^\\p{L}])`, 'giu');
+    let m; while ((m = re.exec(text))) add('block', 'pupil/staff name', m[0].trim(), m.index);
   }
-  for (const id of dataset.identifierStrings) {
+  for (const id of dataset.identifierStrings || []) {
     if (!id || id.length < 3) continue;
     const re = new RegExp(escapeRe(id), 'gi');
     let m; while ((m = re.exec(text))) add('block', 'identifier from report', m[0], m.index);
   }
-  for (const ctx of dataset.contextStrings) {
+  for (const ctx of dataset.contextStrings || []) {
     if (!ctx || ctx.length < 3 || /^\d{1,2}$/.test(ctx)) continue;
     const re = new RegExp(`(^|[^\\p{L}\\d])${escapeRe(ctx)}(?=$|[^\\p{L}\\d])`, 'giu');
     let m; while ((m = re.exec(text))) add('block', 'class/teacher/school detail from report', ctx, m.index);
   }
   // Name tokens as whole words.
-  const tokens = [...dataset.nameTokens].filter((t) => t.length >= 2);
+  const tokens = [...(dataset.nameTokens || [])].filter((t) => t.length >= 2);
   if (tokens.length) {
     const re = new RegExp(`(^|[^\\p{L}])(${tokens.map(escapeRe).join('|')})(?=$|[^\\p{L}])`, 'giu');
-    let m; while ((m = re.exec(text))) add('block', 'pupil name token', m[2], m.index + m[1].length);
+    let m; while ((m = re.exec(text))) add('block', 'name token', m[2], m.index + m[1].length);
   }
   const patternChecks = [
     ['block', 'UPN', PII_PATTERNS.UPN_RE],
+    ['block', 'ULN', PII_PATTERNS.ULN_RE],
     ['block', 'email address', PII_PATTERNS.EMAIL_RE],
     ['block', 'phone number', PII_PATTERNS.UK_PHONE_RE],
     ['block', 'postcode', PII_PATTERNS.POSTCODE_RE],
     ['block', 'long number (possible ID)', PII_PATTERNS.LONG_DIGITS_RE],
-    ['warn', 'date', PII_PATTERNS.DATE_RE],
+    ['block', 'date of birth / full date', PII_PATTERNS.FULL_DATE_RE],
   ];
   for (const [severity, type, re] of patternChecks) {
     re.lastIndex = 0;
@@ -560,6 +615,58 @@ export function guardPayload(payload, dataset) {
   }
   const blocked = findings.some((f) => f.severity === 'block');
   return { ok: !blocked, findings, source: text };
+}
+
+// Automatically maps pupil names typed into follow-ups or notes to their safe codes (e.g. "Liam" -> "P04").
+export function anonymiseText(text, dataset) {
+  if (!text || !dataset) return text;
+  let out = cleanUnicode(text);
+  const pupils = (dataset.pupils || []).slice().sort((a, b) => (b.displayName || '').length - (a.displayName || '').length);
+
+  // 1. Replace exact full display names with their pupil code
+  for (const p of pupils) {
+    if (!p.displayName || p.displayName.length < 2) continue;
+    const re = new RegExp(`(^|[^\\p{L}])${escapeRe(p.displayName)}(?=$|[^\\p{L}])`, 'giu');
+    out = out.replace(re, `$1${p.code}`);
+  }
+
+  // 2. Replace unique first names or unique surnames with pupil codes if unambiguous in this class
+  const tokenToCodes = new Map();
+  for (const p of pupils) {
+    for (const tok of p.nameTokens || []) {
+      if (tok.length < 3) continue;
+      if (!tokenToCodes.has(tok)) tokenToCodes.set(tok, []);
+      tokenToCodes.get(tok).push(p.code);
+    }
+  }
+  for (const [tok, codes] of tokenToCodes) {
+    if (codes.length === 1) {
+      const re = new RegExp(`(^|[^\\p{L}])${escapeRe(tok)}(?=$|[^\\p{L}])`, 'giu');
+      out = out.replace(re, `$1${codes[0]}`);
+    }
+  }
+
+  // 3. Scrub any remaining pupil tokens or identifiers
+  if (dataset.scrub) {
+    out = dataset.scrub(out, null, 'anonymiseText', { keepLayout: true });
+  }
+
+  return out;
+}
+
+// Strictly validates every message in a conversation history.
+export function verifyAllMessagesSafe(messages, dataset) {
+  if (!Array.isArray(messages) || !messages.length) return { ok: true, allFindings: [] };
+  const allFindings = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const content = typeof msg === 'string' ? msg : (msg && msg.content) || '';
+    const g = guardPayload(content, dataset);
+    if (!g.ok) {
+      allFindings.push({ messageIndex: i, role: msg.role || 'message', findings: g.findings });
+    }
+  }
+  return { ok: allFindings.length === 0, allFindings };
 }
 
 // ---------------------------------------------------------------------------
