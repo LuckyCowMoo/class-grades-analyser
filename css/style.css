@@ -322,8 +322,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   left: 38%;
   top: 48%;
   z-index: 7;
-  width: min(68vw, 680px);
-  height: min(68vw, 680px);
+  width: min(74vw, 740px);
+  height: min(74vw, 740px);
   padding: 0;
   border: 0;
   background: none;
@@ -340,6 +340,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   pointer-events: stroke;
   cursor: pointer;
   transition: stroke 0.25s ease, filter 0.25s ease;
+}
+.combine-moon-under {
+  fill: none;
+  stroke: var(--magenta);
+  stroke-width: 46px;
+  stroke-linecap: round;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  opacity: 0.95;
 }
 .combine-moon-shadow {
   fill: none;
@@ -361,11 +370,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .combine-open:focus-visible .combine-moon { stroke: #d94354; filter: drop-shadow(0 0 12px color-mix(in srgb, var(--magenta) 45%, transparent)); }
 .combine-open:hover,
 .combine-open:focus-visible {
-  transform: translate(-50%, -50%) scale(1.05);
+  transform: translate(-50%, -50%) scale(1.12);
   outline: none;
 }
-.combine-open:active { transform: translate(-50%, -50%) scale(0.97); }
+.combine-open:active { transform: translate(-50%, -50%) scale(0.96); }
 .combine-open:focus-visible .combine-moon { outline: 3px solid var(--cream); }
+#screen-home:has(.upload-orb:hover) .combine-open,
+#screen-home:has(.upload-orb:focus-visible) .combine-open {
+  transform: translate(-50%, -50%) scale(0.90);
+}
+#screen-home:has(.combine-open:hover) .upload-orb,
+#screen-home:has(.combine-open:focus-visible) .upload-orb,
+#screen-home:has(.combine-open:hover) .upload-disc,
+#screen-home:has(.combine-open:focus-visible) .upload-disc {
+  transform: translate(-50%, -50%) scale(0.88);
+}
 .combine-moon-origin {
   position: absolute;
   left: 20%;
@@ -623,9 +642,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .combine-anchor {
   --go: min(30vw, 340px);
-  position: fixed;
+  position: absolute;
   right: calc(2vw + var(--go) / 2);
-  top: 36%;
+  top: 36vh;
   width: 0;
   height: 0;
   z-index: 6;
@@ -683,10 +702,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   to { transform: scale(1); }
 }
 .combine-start:hover, .combine-start:focus-visible {
-  transform: translate(-50%, -50%) scale(1.1);
+  transform: translate(-50%, -50%) scale(1.15);
   outline: none;
 }
-.combine-start:active { transform: translate(-50%, -50%) scale(0.96); }
+.combine-start:active { transform: translate(-50%, -50%) scale(0.94); }
 .combine-start.need-picks { animation: combine-need 0.42s ease; }
 @keyframes combine-need {
   0%, 100% { transform: translate(-50%, -50%); }
@@ -695,14 +714,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 #screen-combine:has(.combine-start:hover) .combine-start-disc,
 #screen-combine:has(.combine-start:focus-visible) .combine-start-disc {
-  transform: translate(-50%, -50%) scale(1.1);
+  transform: translate(-50%, -50%) scale(1.15);
+}
+.combine-anchor:has(.combine-start:hover) .combine-back,
+.combine-anchor:has(.combine-start:focus-visible) .combine-back {
+  transform: translate(-50%, -50%) scale(0.90);
+}
+.combine-anchor:has(.combine-back:hover) .combine-start,
+.combine-anchor:has(.combine-back:focus-visible) .combine-start,
+.combine-anchor:has(.combine-back:hover) .combine-start-disc,
+.combine-anchor:has(.combine-back:focus-visible) .combine-start-disc {
+  transform: translate(-50%, -50%) scale(0.88);
 }
 #screen-combine .combine-back {
   position: absolute;
   left: 0;
   top: 0;
-  width: calc(var(--go) * 480 / 310);
-  height: calc(var(--go) * 480 / 310);
+  width: calc(var(--go) * 500 / 310);
+  height: calc(var(--go) * 500 / 310);
   transform: translate(-50%, -50%);
   border: 0;
   background: transparent;
@@ -727,6 +756,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   cursor: pointer;
   transition: stroke 0.25s ease, filter 0.25s ease;
 }
+#screen-combine .combine-back .combine-moon-under {
+  fill: none;
+  stroke: var(--magenta);
+  stroke-width: 46px;
+  stroke-linecap: round;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  opacity: 0.95;
+}
 #screen-combine .combine-back .combine-moon-shadow {
   fill: none;
   stroke: var(--navy-2);
@@ -744,7 +782,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 #screen-combine .combine-back:hover,
 #screen-combine .combine-back:focus-visible {
-  transform: translate(-50%, -50%) scale(1.05);
+  transform: translate(-50%, -50%) scale(1.12);
   outline: none;
 }
 #screen-combine .combine-back:hover .combine-moon,
@@ -752,7 +790,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   stroke: #d94354;
   filter: drop-shadow(0 0 12px color-mix(in srgb, var(--magenta) 45%, transparent));
 }
-#screen-combine .combine-back:active { transform: translate(-50%, -50%) scale(0.97); }
+#screen-combine .combine-back:active { transform: translate(-50%, -50%) scale(0.96); }
 #screen-combine .combine-back:focus-visible .combine-moon { outline: 3px solid var(--cream); }
 #screen-combine.bloom-in .combine-back svg { opacity: 0; }
 .combine-search {
@@ -823,7 +861,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 10px 14px;
+  padding: 10px 18px;
   background: var(--magenta);
   color: var(--cream);
   border-radius: 999px;

@@ -778,8 +778,8 @@ function layoutCombineColumns() {
   board.style.right = `${reserveR}px`;
   const n = cols.length;
   const avail = Math.max(160, w - marginL - reserveR);
-  let colW = Math.min(230, (avail - gap * Math.max(0, n - 1)) / n);
-  if (colW < 168) colW = 168;
+  let colW = Math.min(275, (avail - gap * Math.max(0, n - 1)) / n);
+  if (colW < 200) colW = 200;
   const total = marginL + n * colW + (n - 1) * gap + 24;
   board.style.setProperty('--board-w', `${Math.max(total, board.clientWidth)}px`);
 
