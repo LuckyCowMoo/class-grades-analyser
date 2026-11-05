@@ -7,7 +7,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://api.openai.com https://api.x.ai https://api.groq.com https://api.deepseek.com https://api.mistral.ai https://api.together.xyz https://api.together.ai https://api.fireworks.ai; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=73">
+  <link rel="stylesheet" href="css/style.css?v=74">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -44,17 +44,9 @@
         <span>Select<br><em>folder</em></span>
       </button>
       <p class="orb-progress" id="progress-label" hidden></p>
+      <div class="combine-disc" aria-hidden="true"></div>
       <button type="button" class="combine-open" id="combine-open" data-go="combine" aria-label="Combine classes">
-        <svg viewBox="0 0 500 500" aria-hidden="true">
-          <defs>
-            <path id="combine-open-text-path" d="M 38.27 212.67 A 215 215 0 0 0 373.32 426.12" fill="none"/>
-          </defs>
-          <path class="combine-moon-shadow" d="M 38.27 212.67 A 215 215 0 0 0 373.32 426.12" transform="translate(10 12)"/>
-          <path class="combine-moon-under" d="M 38.27 212.67 A 215 215 0 0 0 373.32 426.12"/>
-          <path class="combine-moon" d="M 38.27 212.67 A 215 215 0 0 0 373.32 426.12"/>
-          <text class="combine-moon-label"><textPath href="#combine-open-text-path" startOffset="50%" text-anchor="middle">Combine classes</textPath></text>
-        </svg>
-        <span class="combine-moon-origin" aria-hidden="true"></span>
+        <span>Combine<br><em>classes</em></span>
       </button>
       <nav class="home-pills" aria-label="Home">
         <button type="button" class="pill" data-go="help">How to use this</button>
@@ -139,20 +131,13 @@
       <p class="combine-status" id="combine-status"></p>
       <div class="combine-board" id="combine-board"></div>
       <div class="combine-anchor">
-        <button type="button" class="combine-back" data-go="home" aria-label="Back">
-          <svg viewBox="0 0 500 500" aria-hidden="true">
-            <defs>
-              <path id="combine-back-text-path" d="M 67.67 363.93 A 215 215 0 0 0 432.33 363.93" fill="none"/>
-            </defs>
-            <path class="combine-moon-shadow" d="M 67.67 363.93 A 215 215 0 0 0 432.33 363.93" transform="translate(10 12)"/>
-            <path class="combine-moon-under" d="M 67.67 363.93 A 215 215 0 0 0 432.33 363.93"/>
-            <path class="combine-moon" d="M 67.67 363.93 A 215 215 0 0 0 432.33 363.93"/>
-            <text class="combine-moon-label"><textPath href="#combine-back-text-path" startOffset="50%" text-anchor="middle">Back</textPath></text>
-          </svg>
-        </button>
         <div class="combine-start-disc" aria-hidden="true"></div>
         <button type="button" class="combine-start" id="combine-start">
           <span class="combine-start-copy"><b>Start</b><i><span id="combine-count">0</span> <span id="combine-count-word">pupils</span></i></span>
+        </button>
+        <div class="combine-back-disc" aria-hidden="true"></div>
+        <button type="button" class="combine-back" data-go="home" aria-label="Back">
+          <span>Back</span>
         </button>
       </div>
       <input id="combine-file" class="sr-file" type="file" accept=".zip,.pdf,application/zip,application/pdf" multiple>
@@ -321,6 +306,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=78"></script>
+  <script type="module" src="js/app.js?v=79"></script>
 </body>
 </html>

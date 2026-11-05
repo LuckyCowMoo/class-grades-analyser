@@ -411,9 +411,10 @@ function placeBloomCircle(el, x, y, size, scale, opacity) {
 
 function bloomPartners(origin) {
   if (!origin) return [];
-  if (origin.classList.contains('upload-disc')) return [...document.querySelectorAll('#screen-home .upload-disc, #screen-home .upload-orb')];
-  if (origin.classList.contains('combine-start-disc')) return [...document.querySelectorAll('#screen-combine .combine-start-disc, #screen-combine .combine-start')];
-  if (origin.classList.contains('combine-moon-origin')) return [...document.querySelectorAll('#screen-home .combine-open')];
+  if (origin.classList.contains('upload-disc') || origin.classList.contains('upload-orb')) return [...document.querySelectorAll('#screen-home .upload-disc, #screen-home .upload-orb')];
+  if (origin.classList.contains('combine-start-disc') || origin.classList.contains('combine-start')) return [...document.querySelectorAll('#screen-combine .combine-start-disc, #screen-combine .combine-start')];
+  if (origin.classList.contains('combine-disc') || origin.classList.contains('combine-open')) return [...document.querySelectorAll('#screen-home .combine-disc, #screen-home .combine-open')];
+  if (origin.classList.contains('combine-back-disc') || origin.classList.contains('combine-back')) return [...document.querySelectorAll('#screen-combine .combine-back-disc, #screen-combine .combine-back')];
   return [origin];
 }
 
@@ -528,7 +529,7 @@ async function doorsThenHome() {
 
 async function playTransition(from, to) {
   if (from === 'home' && to === 'review') return bloomReveal(to, document.querySelector('.upload-disc'));
-  if (from === 'home' && to === 'combine') return bloomReveal(to, document.querySelector('.combine-moon-origin'));
+  if (from === 'home' && to === 'combine') return bloomReveal(to, document.querySelector('.combine-disc') || document.querySelector('.combine-open'));
   if (from === 'combine' && to === 'review') return bloomReveal(to, document.querySelector('.combine-start-disc'));
   if (from === 'home' && to === 'help') {
     return coverThenAssemble({ fxClass: 'slash-wipe', coverMs: 720, to, fromColor: 'peach' });
