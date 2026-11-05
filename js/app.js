@@ -771,29 +771,70 @@ function layoutCombineColumns() {
   if (!cols.length) return;
   const w = window.innerWidth;
   const h = window.innerHeight;
-  const gap = 18;
+  const gap = 20;
   const marginL = Math.max(28, w * 0.04);
-  const go = Math.min(w * 0.36, 400);
-  const reserveR = w * 0.015 + go * 1.16 + 16;
+  const go = Math.min(w * 0.30, 340);
+  const reserveR = w * 0.02 + go * 1.15 + 24;
   board.style.right = `${reserveR}px`;
   const n = cols.length;
   const avail = Math.max(160, w - marginL - reserveR);
-  let colW = Math.min(220, (avail - gap * Math.max(0, n - 1)) / n);
+  let colW = Math.min(230, (avail - gap * Math.max(0, n - 1)) / n);
   if (colW < 168) colW = 168;
   const total = marginL + n * colW + (n - 1) * gap + 24;
   board.style.setProperty('--board-w', `${Math.max(total, board.clientWidth)}px`);
+
+  // Seam slopes downwards to the right (top section moved up)
+  const seamY1 = h * 0.18;
+  const seamY2 = h * 0.30;
+  const seamAngle = Math.atan2(seamY2 - seamY1, w) * (180 / Math.PI);
+  board.style.setProperty('--seam-angle', `${seamAngle.toFixed(2)}deg`);
+
   cols.forEach((col, i) => {
     const left = marginL + i * (colW + gap);
     col.style.left = `${left}px`;
     col.style.width = `${colW}px`;
     const cx = left - board.scrollLeft + colW / 2;
-    const seam = h * (0.48 - 0.14 * (cx / w));
+    const seam = seamY1 + (seamY2 - seamY1) * (cx / w);
     const head = col.querySelector('.combine-col-head');
-    const headH = head ? head.offsetHeight : 48;
-    const top = Math.max(12, seam - headH / 2);
+    const headH = head ? head.offsetHeight : 44;
+    const top = Math.max(10, seam - headH / 2);
     col.style.top = `${top}px`;
-    col.style.height = `${Math.max(headH + 48, h - top - 20)}px`;
+    col.style.height = `${Math.max(headH + 48, h - top - 18)}px`;
+    if (head) {
+      head.style.transform = `rotate(${seamAngle.toFixed(2)}deg)`;
+      head.style.transformOrigin = 'center center';
+    }
   });
+}
+
+function appendPupilsLive(cls, newRows) {
+  const board = $('combine-board');
+  if (!board) return;
+  const col = board.querySelector(`.combine-col[data-class-id="${cls.id}"]`);
+  if (!col) {
+    renderCombine();
+    return;
+  }
+  const title = col.querySelector('.combine-class-pill span');
+  if (title) title.textContent = cls.label;
+  const pupilsDiv = col.querySelector('.combine-col-pupils');
+  if (!pupilsDiv) return;
+  const q = state.combineQuery.trim().toLowerCase();
+  for (const row of newRows) {
+    if (q && !row.name.toLowerCase().includes(q)) continue;
+    const label = document.createElement('label');
+    label.className = 'combine-pupil pop-in';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = row.picked;
+    box.dataset.pupil = row.id;
+    const pupil = document.createElement('span');
+    pupil.textContent = row.name;
+    label.append(box, pupil);
+    pupilsDiv.appendChild(label);
+  }
+  pupilsDiv.scrollTop = pupilsDiv.scrollHeight;
+  layoutCombineColumns();
 }
 
 function renderCombine() {
@@ -806,6 +847,7 @@ function renderCombine() {
   for (const cls of state.combineClasses) {
     const col = document.createElement('div');
     col.className = 'combine-col';
+    col.dataset.classId = cls.id;
     const head = document.createElement('div');
     head.className = 'combine-col-head';
     const pill = document.createElement('div');
@@ -878,23 +920,78 @@ async function addCombineClass(files) {
       holdStatus = errors[0] || 'That was not a zip or PDF of pupil reports.';
       return;
     }
-    const { pupils, files: items } = await parsePdfs(pdfs, (pdf, done, total) => {
-      if (status) status.textContent = `Reading ${pdf.name} · ${done + 1} of ${total}`;
-    });
-    const rows = combineRows(pupils);
-    if (!rows.length) {
-      holdStatus = 'No pupil names were found in that file.';
-      return;
-    }
-    const meta = classMetaFromPupils(rows.map((r) => r.pupil));
+
+    const classIdx = state.combineClasses.length;
+    const clsId = `c${Date.now().toString(36)}`;
     const cls = {
-      id: `c${Date.now().toString(36)}`,
-      label: combineLabel(state.combineClasses.length, meta),
-      rows,
-      files: items,
+      id: clsId,
+      label: combineLabel(classIdx, {}),
+      rows: [],
+      files: [],
+      loading: true,
     };
     state.combineClasses.push(cls);
     state.combineActive = cls.id;
+    renderCombine();
+
+    let done = 0;
+    const seenNames = new Set();
+    for (const pdf of pdfs) {
+      if (status) status.textContent = `Reading ${pdf.name} · ${done + 1} of ${pdfs.length}`;
+      const item = { name: pdf.name, status: 'ok', pupils: [], warnings: [] };
+      try {
+        const structure = await extractPdfStructure(pdfjsLib, pdf.data);
+        const totalRows = structure.pages.reduce((s, p) => s + p.rows.length, 0);
+        if (!totalRows) {
+          item.status = 'bad';
+          item.warnings.push('No selectable text.');
+        } else {
+          const report = parseReport(structure, { filename: pdf.name });
+          item.pupils = report.pupils;
+          const addedRows = [];
+          for (const p of report.pupils) {
+            const key = p.displayName ? p.displayName.trim().toLowerCase() : '';
+            if (key && seenNames.has(key)) {
+              const existing = cls.rows.find((r) => r.name.toLowerCase() === key);
+              if (existing) {
+                existing.pupil.assessments = existing.pupil.assessments.concat(p.assessments || []);
+              }
+              continue;
+            }
+            if (key) seenNames.add(key);
+            const row = {
+              id: `p${Date.now().toString(36)}_${cls.rows.length}_${Math.random().toString(36).slice(2, 6)}`,
+              name: p.displayName || 'Unknown pupil',
+              picked: false,
+              pupil: { ...p, assessments: [...(p.assessments || [])] },
+            };
+            cls.rows.push(row);
+            addedRows.push(row);
+          }
+          if (addedRows.length) {
+            const meta = classMetaFromPupils(cls.rows.map((r) => r.pupil));
+            cls.label = combineLabel(classIdx, meta);
+            appendPupilsLive(cls, addedRows);
+            renderCombineCount();
+          }
+        }
+      } catch (err) {
+        item.status = 'bad';
+        item.warnings.push(err.message);
+      }
+      cls.files.push(item);
+      done++;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    if (!cls.rows.length) {
+      state.combineClasses = state.combineClasses.filter((c) => c.id !== clsId);
+      holdStatus = 'No pupil names were found in that file.';
+    } else {
+      cls.rows.sort((a, b) => a.name.localeCompare(b.name, 'en-GB', { sensitivity: 'base' }));
+      cls.loading = false;
+      holdStatus = `${cls.rows.length} pupils loaded into ${cls.label}.`;
+    }
   } finally {
     state.combineBusy = false;
     renderCombine();

@@ -7,7 +7,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://openrouter.ai https://api.anthropic.com https://generativelanguage.googleapis.com https://api.openai.com https://api.x.ai https://api.groq.com https://api.deepseek.com https://api.mistral.ai https://api.together.xyz https://api.together.ai https://api.fireworks.ai; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>Class Grades Analyser · Christ the King, Southport</title>
       <link rel="icon" href="img/ctk-crest.png">
-  <link rel="stylesheet" href="css/style.css?v=70">
+  <link rel="stylesheet" href="css/style.css?v=71">
 </head>
 <body>
   <div class="fx" id="fx" aria-hidden="true">
@@ -46,14 +46,12 @@
       <p class="orb-progress" id="progress-label" hidden></p>
       <button type="button" class="combine-open" id="combine-open" data-go="combine" aria-label="Combine classes">
         <svg viewBox="0 0 480 480" aria-hidden="true">
-          <g class="combine-moon-shadow" transform="translate(11 13)">
-            <path d="M 90.23 196.35 A 128 128 0 1 0 246.12 395.88 A 156 156 0 0 1 90.23 196.35 Z"/>
-          </g>
-          <path class="combine-moon" d="M 90.23 196.35 A 128 128 0 1 0 246.12 395.88 A 156 156 0 0 1 90.23 196.35 Z"/>
-          <g class="combine-moon-label" transform="translate(84.76 361.29) rotate(52)">
-            <text text-anchor="middle" y="-6">Combine</text>
-            <text text-anchor="middle" y="28">classes</text>
-          </g>
+          <defs>
+            <path id="combine-open-text-path" d="M 46.98 205.96 A 196 196 0 0 0 352.42 400.55" fill="none"/>
+          </defs>
+          <path class="combine-moon-shadow" d="M 46.98 205.96 A 196 196 0 0 0 352.42 400.55" transform="translate(8 10)"/>
+          <path class="combine-moon" d="M 46.98 205.96 A 196 196 0 0 0 352.42 400.55"/>
+          <text class="combine-moon-label"><textPath href="#combine-open-text-path" startOffset="50%" text-anchor="middle">Combine classes</textPath></text>
         </svg>
         <span class="combine-moon-origin" aria-hidden="true"></span>
       </button>
@@ -140,20 +138,14 @@
       <p class="combine-status" id="combine-status"></p>
       <div class="combine-board" id="combine-board"></div>
       <div class="combine-anchor">
-        <button type="button" class="back-orb combine-back" data-go="home" aria-label="Back">
-          <svg viewBox="50 8 270 236" aria-hidden="true">
+        <button type="button" class="combine-back" data-go="home" aria-label="Back">
+          <svg viewBox="0 0 480 480" aria-hidden="true">
             <defs>
-              <path id="combine-back-text" d="M 56.19 181.15 A 193 193 0 0 1 280.94 51.39" fill="none"/>
-              <mask id="combine-back-shadow" maskUnits="userSpaceOnUse">
-                <rect x="0" y="0" width="480" height="480" fill="white"/>
-                <circle cx="240" cy="240" r="166" fill="black"/>
-              </mask>
+              <path id="combine-back-text-path" d="M 73.78 343.86 A 196 196 0 0 0 406.22 343.86" fill="none"/>
             </defs>
-            <g class="combine-moon-shadow" mask="url(#combine-back-shadow)" transform="translate(10 12)">
-              <path d="M 303.24 99.59 A 126 126 0 1 0 86.78 224.56 A 154 154 0 0 1 303.24 99.59 Z"/>
-            </g>
-            <path class="combine-moon" d="M 303.24 99.59 A 126 126 0 1 0 86.78 224.56 A 154 154 0 0 1 303.24 99.59 Z"/>
-            <text class="combine-moon-label"><textPath href="#combine-back-text" startOffset="50%" text-anchor="middle">Back</textPath></text>
+            <path class="combine-moon-shadow" d="M 73.78 343.86 A 196 196 0 0 0 406.22 343.86" transform="translate(8 10)"/>
+            <path class="combine-moon" d="M 73.78 343.86 A 196 196 0 0 0 406.22 343.86"/>
+            <text class="combine-moon-label"><textPath href="#combine-back-text-path" startOffset="50%" text-anchor="middle">Back</textPath></text>
           </svg>
         </button>
         <div class="combine-start-disc" aria-hidden="true"></div>
@@ -327,6 +319,6 @@
   </div>
 
   <script src="vendor/jszip.min.js"></script>
-  <script type="module" src="js/app.js?v=75"></script>
+  <script type="module" src="js/app.js?v=76"></script>
 </body>
 </html>
