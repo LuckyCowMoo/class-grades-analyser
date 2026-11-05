@@ -789,6 +789,7 @@ function layoutCombineColumns() {
   const seamAngle = Math.atan2(seamY2 - seamY1, w) * (180 / Math.PI);
   board.style.setProperty('--seam-angle', `${seamAngle.toFixed(2)}deg`);
 
+  let maxBottom = h;
   cols.forEach((col, i) => {
     const left = marginL + i * (colW + gap);
     col.style.left = `${left}px`;
@@ -799,12 +800,15 @@ function layoutCombineColumns() {
     const headH = head ? head.offsetHeight : 44;
     const top = Math.max(10, seam - headH / 2);
     col.style.top = `${top}px`;
-    col.style.height = `${Math.max(headH + 48, h - top - 18)}px`;
+    col.style.height = 'auto';
     if (head) {
       head.style.transform = `rotate(${seamAngle.toFixed(2)}deg)`;
       head.style.transformOrigin = 'center center';
     }
+    const b = top + col.offsetHeight;
+    if (b > maxBottom) maxBottom = b;
   });
+  board.style.minHeight = `${maxBottom + 80}px`;
 }
 
 function appendPupilsLive(cls, newRows) {
@@ -833,7 +837,6 @@ function appendPupilsLive(cls, newRows) {
     label.append(box, pupil);
     pupilsDiv.appendChild(label);
   }
-  pupilsDiv.scrollTop = pupilsDiv.scrollHeight;
   layoutCombineColumns();
 }
 
