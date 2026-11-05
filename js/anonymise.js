@@ -12,7 +12,7 @@
 //    allowed out ("belt and braces").
 
 import { classifyValue, matchLabel, measureFlags, PII_PATTERNS } from './parse-report.js';
-import { scanCommonNames } from './common-names.js';
+import { scanCommonNames, wordsAround } from './common-names.js?v=3';
 
 const CODE_PREFIXES = ['P', 'S', 'K', 'Q', 'Z', 'ID'];
 
@@ -506,9 +506,16 @@ function escapeRe(s) {
 export function guardPayload(payload, dataset) {
   const findings = [];
   const text = String(payload);
-  const add = (severity, type, match, index) => {
+  const add = (severity, type, match, index, extra = {}) => {
     const start = Math.max(0, index - 40); const end = Math.min(text.length, index + String(match).length + 40);
-    findings.push({ severity, type, match, context: text.slice(start, end).replace(/\n/g, ' ') });
+    findings.push({
+      severity,
+      type,
+      match,
+      index,
+      context: text.slice(start, end).replace(/\n/g, ' '),
+      ...extra,
+    });
   };
 
   // Full names and identifier strings, as whole strings.
@@ -548,11 +555,11 @@ export function guardPayload(payload, dataset) {
   const already = new Set(findings.map((f) => String(f.match || '').toLowerCase()));
   for (const hit of scanCommonNames(text)) {
     if (already.has(hit.key) || already.has(String(hit.match).toLowerCase())) continue;
-    add('warn', 'possible name', hit.match, hit.index);
+    add('warn', 'possible name', hit.match, hit.index, wordsAround(text, hit.index, hit.match));
     already.add(hit.key);
   }
   const blocked = findings.some((f) => f.severity === 'block');
-  return { ok: !blocked, findings };
+  return { ok: !blocked, findings, source: text };
 }
 
 // ---------------------------------------------------------------------------

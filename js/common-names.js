@@ -282,6 +282,26 @@ const NAME_KEYS = new Set([...GIVEN_NAMES, ...SURNAMES].filter((n) => !ENGLISH_N
 const SKIP_ALLCAPS = /^[A-Z]{2,4}$/;
 const PUPIL_CODE = /^[A-Z]{1,3}\d{1,4}$/i;
 
+const WORD_RE = /[\p{L}\p{N}'’%-]+/gu;
+
+function wordsIn(s) {
+  return String(s || '').match(WORD_RE) || [];
+}
+
+export function wordsAround(text, index, match, n = 5) {
+  const src = String(text || '');
+  const hit = String(match || '');
+  const start = Math.max(0, Number.isFinite(Number(index)) ? Number(index) : 0);
+  const before = wordsIn(src.slice(0, start));
+  const after = wordsIn(src.slice(start + hit.length));
+  return {
+    pre: before.slice(-n),
+    post: after.slice(0, n),
+    morePre: before.length > n,
+    morePost: after.length > n,
+  };
+}
+
 export function scanCommonNames(text) {
   const found = [];
   const seen = new Set();
@@ -297,7 +317,7 @@ export function scanCommonNames(text) {
       if (!NAME_KEYS.has(key)) continue;
       if (seen.has(key)) continue;
       seen.add(key);
-      found.push({ match: raw, key, index: m.index });
+      found.push({ match: raw, key, index: m.index, ...wordsAround(text, m.index, raw) });
     }
   }
   return found;

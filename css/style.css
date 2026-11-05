@@ -922,6 +922,24 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
 }
 .guard.names strong { display: block; font-size: 1.22rem; margin-bottom: 8px; }
 .guard.names p { margin: 0.55em 0; }
+.guard.names .name-snips {
+  list-style: none;
+  margin: 8px 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.guard.names .name-snips li {
+  background: color-mix(in srgb, var(--navy) 28%, transparent);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 1.02rem;
+  color: var(--cream);
+}
+.guard.names .name-around {
+  color: color-mix(in srgb, var(--cream) 82%, var(--navy));
+  font-weight: 600;
+}
 .guard.names .name-hit {
   display: inline-block;
   background: color-mix(in srgb, var(--navy) 55%, transparent);
@@ -932,11 +950,22 @@ table.data th, table.data td { padding: 8px 10px; border-bottom: 1px solid color
   font-family: var(--display);
   font-size: 1.05rem;
 }
+.guard.names .name-warning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.guard.names .name-goback,
 .guard.names .name-anyway {
-  margin-top: 10px;
+  margin-top: 0;
   background: var(--navy);
   color: var(--cream);
   box-shadow: 6px 7px 0 var(--navy-2);
+}
+.guard.names .name-anyway {
+  background: var(--navy-2);
+  box-shadow: 6px 7px 0 var(--navy);
 }
 #screen-analyse .name-banner {
   position: relative;

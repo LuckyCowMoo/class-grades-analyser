@@ -1,7 +1,8 @@
 import * as pdfjsLib from '../vendor/pdf.min.js';
 import { extractPdfStructure } from './pdf-extract.js';
 import { parseReport, classifyValue } from './parse-report.js';
-import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=3';
+import { buildClassDataset, buildPayload, guardPayload, reidentify, pupilsFromKey } from './anonymise.js?v=6';
+import { wordsAround } from './common-names.js?v=3';
 import { listModelsForProvider, runWithFallback, fetchModelCard, explainAiError, OPENROUTER_BASE, FREE_ROUTER_ID, estimateTextTokens, reportCostFromRates, reportUsageEstimate, looksReasoningModel, usageCost, usageSplit, formatGbp, USD_TO_GBP } from './ai-client.js?v=13';
 import { buildOutgoing, parseOutgoingCombined, CORE_SECTIONS, EXTRA_SECTIONS, OTHER_EXAMPLE } from './prompt.js?v=5';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -919,15 +920,32 @@ function doRefreshPayload() {
   relabelModelOptions();
 }
 
+function nameScanSource(g) {
+  if (g && g.source) return g.source;
+  if (state.nameScanPending && state.nameScanPending.text) return state.nameScanPending.text;
+  if (state.outgoing && state.outgoing.combined) return state.outgoing.combined;
+  const ta = $('outgoing-edit');
+  return (ta && ta.value) || '';
+}
+
 function possibleNameHits(g) {
   const hits = [];
   const seen = new Set();
+  const source = nameScanSource(g);
   for (const f of (g && g.findings) || []) {
     if (f.type !== 'possible name') continue;
     const key = String(f.match || '').toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    hits.push(f.match);
+    const idx = Number.isFinite(Number(f.index)) ? Number(f.index) : source.toLowerCase().indexOf(key);
+    const around = wordsAround(source, idx < 0 ? 0 : idx, f.match);
+    hits.push({
+      match: f.match,
+      pre: around.pre,
+      post: around.post,
+      morePre: around.morePre,
+      morePost: around.morePost,
+    });
   }
   return hits;
 }
@@ -936,18 +954,31 @@ function identBlockHtml(blocks) {
   return `<strong>This will not be sent.</strong> Something identifying is still in the message: ${blocks.slice(0, 8).map((f) => `${escapeHtml(f.type)} (${escapeHtml(f.match)})`).join('; ')}.`;
 }
 
-function nameWarningHtml(names, { allowSend = false } = {}) {
-  const chips = names.map((n) => `<b class="name-hit">${escapeHtml(n)}</b>`).join(', ');
-  const next = allowSend
-    ? `<p>If it is only a topic name, you can send anyway.</p><button type="button" class="pill name-anyway">Send anyway</button>`
-    : `<p>If that is a person, edit the exact message. If it is only a topic name, continue and confirm on the next page.</p>`;
+function nameSnippetHtml(hit) {
+  const pre = (hit.pre || []).map(escapeHtml).join(' ');
+  const post = (hit.post || []).map(escapeHtml).join(' ');
+  const left = `<span class="name-around">${hit.morePre ? '… ' : ''}${pre}</span>`;
+  const right = `<span class="name-around">${post}${hit.morePost ? ' …' : ''}</span>`;
+  return `${left} <b class="name-hit">${escapeHtml(hit.match)}</b> ${right}`;
+}
+
+function nameWarningHtml(names, { actions = false } = {}) {
+  const rows = names.map((n) => `<li>${nameSnippetHtml(n)}</li>`).join('');
+  const next = actions
+    ? `<p>If that is a person, go back and take it out. If the scan was wrong, you can still send it.</p>
+       <div class="name-warning-actions">
+         <button type="button" class="pill name-goback">Go back</button>
+         <button type="button" class="pill name-anyway">Send anyway</button>
+       </div>`
+    : `<p>If that is a person, edit the exact message.</p>`;
   return `<strong>Stop — this still looks like it has a person’s name in it.</strong>
-    <p>The scan found: ${chips}.</p>
-    <p>If that is a pupil, a teacher, or anyone at the school, take it out of the message. Do not send it. Ordinary English words that are also names (such as Rose, May or Mark) are ignored.</p>
+    <p>The scan found:</p>
+    <ul class="name-snips">${rows}</ul>
+    <p>If that is a pupil, a teacher, or anyone at the school, take it out of the message. Do not send it.</p>
     ${next}`;
 }
 
-function fillGuardBox(el, blocks, names, allowSend) {
+function fillGuardBox(el, blocks, names, actions) {
   if (!el) return;
   if (blocks.length) {
     el.hidden = false;
@@ -956,7 +987,7 @@ function fillGuardBox(el, blocks, names, allowSend) {
   } else if (names.length) {
     el.hidden = false;
     el.className = el.classList.contains('name-banner') ? 'guard name-banner names' : 'guard names';
-    el.innerHTML = nameWarningHtml(names, { allowSend });
+    el.innerHTML = nameWarningHtml(names, { actions });
   } else {
     el.className = el.classList.contains('name-banner') ? 'guard name-banner' : 'guard';
     el.textContent = '';
@@ -964,12 +995,34 @@ function fillGuardBox(el, blocks, names, allowSend) {
   }
 }
 
+function hideReportNameWarnings() {
+  document.querySelectorAll('#screen-analyse .name-banner').forEach((el) => {
+    el.className = 'guard name-banner';
+    el.textContent = '';
+    el.hidden = true;
+  });
+}
+
 function renderGuard() {
   const g = state.guard;
   const blocks = g ? g.findings.filter((f) => f.severity === 'block') : [];
   const names = possibleNameHits(g);
   fillGuardBox($('guard-banner'), blocks, names, false);
-  document.querySelectorAll('.name-banner').forEach((el) => fillGuardBox(el, blocks, names, true));
+  const sending = state.analysePhase === 'thinking' || state.analysePhase === 'streaming';
+  document.querySelectorAll('.name-banner').forEach((el) => {
+    if (sending) {
+      el.className = 'guard name-banner';
+      el.textContent = '';
+      el.hidden = true;
+    } else {
+      fillGuardBox(el, blocks, names, true);
+    }
+  });
+}
+
+function nameWarningGoBack() {
+  state.nameScanPending = null;
+  goTo('review');
 }
 
 function confirmNameScanAndSend() {
@@ -1273,12 +1326,18 @@ async function runAnalysis({ followUp = false } = {}) {
   const outgoing = (state.outgoing && state.outgoing.combined) || '';
   const names = possibleNameHits(state.guard);
   if (names.length && state.nameScanConfirmed !== outgoing) {
-    state.nameScanPending = { followUp: false, text: outgoing };
-    renderGuard();
-    $('run-status').textContent = 'Stopped: the message still looks like it contains names.';
-    const banner = document.querySelector('#screen-analyse .name-banner');
-    if (banner) banner.scrollIntoView({ block: 'nearest' });
-    return;
+    const bannerUp = [...document.querySelectorAll('#screen-analyse .name-banner')].some((el) => !el.hidden && el.classList.contains('names'));
+    const warned = bannerUp || (state.nameScanPending && !state.nameScanPending.followUp && state.nameScanPending.text === outgoing);
+    if (!warned) {
+      state.nameScanPending = { followUp: false, text: outgoing };
+      renderGuard();
+      $('run-status').textContent = 'Check the name warning. Press Go again if the scan was wrong.';
+      const banner = document.querySelector('#screen-analyse .name-banner');
+      if (banner) banner.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    state.nameScanConfirmed = outgoing;
+    state.nameScanPending = null;
   }
   if (!followUp) {
     const system = (state.outgoing.system || '').trim();
@@ -1294,6 +1353,7 @@ async function runAnalysis({ followUp = false } = {}) {
   } else if (state.reportId != null && state.reportId !== '') {
     state.reportId = String(state.reportId);
   }
+  hideReportNameWarnings();
   state.usage.livePrompt = estimateTextTokens(state.messages.map((m) => m.content).join('\n'));
   state.usage.liveCompletion = 0;
   state.usage.liveReasoning = 0;
@@ -1784,11 +1844,16 @@ async function sendFollowUp() {
   if (!g.ok) { $('run-status').textContent = 'That follow-up still looks identifying. Use codes, not names.'; return; }
   const names = possibleNameHits(g);
   if (names.length && state.nameScanConfirmed !== text) {
-    state.guard = g;
-    state.nameScanPending = { followUp: true, text };
-    renderGuard();
-    $('run-status').textContent = 'Stopped: that follow-up still looks like it contains a name.';
-    return;
+    const warned = state.nameScanPending && state.nameScanPending.followUp && state.nameScanPending.text === text;
+    if (!warned) {
+      state.guard = g;
+      state.nameScanPending = { followUp: true, text };
+      renderGuard();
+      $('run-status').textContent = 'Check the name warning. Send again if the scan was wrong.';
+      return;
+    }
+    state.nameScanConfirmed = text;
+    state.nameScanPending = null;
   }
   $('followup').value = '';
   sizeFollowUp();
@@ -1870,6 +1935,7 @@ function init() {
   $('paste-save').addEventListener('click', () => importPastedReply($('paste-text').value));
   $('go').addEventListener('click', () => runAnalysis());
   document.addEventListener('click', (e) => {
+    if (e.target.closest('.name-goback')) nameWarningGoBack();
     if (e.target.closest('.name-anyway')) confirmNameScanAndSend();
   });
   $('stop').addEventListener('click', () => { if (state.abort) state.abort.abort(); });
