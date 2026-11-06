@@ -321,6 +321,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .home-pills a.pill,
 .home-pills a.pill:visited {
   color: var(--white);
+  text-align: center;
   text-decoration: none;
 }
 .combine-disc, .combine-open {
