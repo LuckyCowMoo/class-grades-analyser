@@ -460,10 +460,15 @@ async function bloomReveal(to, source) {
     showScreen(to);
     await frame();
 
-    const land = dest.querySelector('.back-orb').getBoundingClientRect();
+    const landEl = dest.querySelector('.combine-start-disc') ||
+                   dest.querySelector('.combine-start') ||
+                   dest.querySelector('.back-orb') ||
+                   dest.querySelector('.upload-disc') ||
+                   dest;
+    const land = (landEl && landEl.getBoundingClientRect()) || from;
     const tx = land.left + land.width / 2;
     const ty = land.top + land.height / 2;
-    const end = land.width / size;
+    const end = (land.width || size) / size;
 
     await Promise.all([
       playAnim(blob, [
